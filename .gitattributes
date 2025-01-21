@@ -1,0 +1,7 @@
+node_modules/** -text
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.d.ts text eol=lf
+*.js text eol=lf
+*.md text eol=lf
+*.json text eol=lf
