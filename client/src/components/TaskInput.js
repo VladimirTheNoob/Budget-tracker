@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from '../api';
+import axios from 'axios';
 
 const TaskInput = () => {
   // State to manage form inputs
@@ -14,22 +14,58 @@ const TaskInput = () => {
   const [bulkTasks, setBulkTasks] = useState('');
   const [parsedTasks, setParsedTasks] = useState([]);
 
-  // State to store list of employees
+  // State for employee-department input
+  const [bulkEmployeeDepartment, setBulkEmployeeDepartment] = useState('');
+  const [parsedEmployeeDepartment, setParsedEmployeeDepartment] = useState([]);
+
+  // State for fetched tasks and employees
+  const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
 
-  // Fetch employees when component mounts
+  // Fetch tasks and employees data when the component mounts
   useEffect(() => {
-    const fetchEmployees = async () => {
+    const fetchData = async () => {
       try {
-        // Adjust the API endpoint as per your backend route
-        const response = await axios.get('/employees');
-        setEmployees(response.data);
+        console.log('Attempting to fetch tasks from:', 'http://localhost:5000/api/tasks');
+        const tasksResponse = await axios.get('http://localhost:5000/api/tasks', {
+          timeout: 5000  // 5-second timeout
+        });
+        setTasks(tasksResponse.data);
+
+        console.log('Attempting to fetch employees from:', 'http://localhost:5000/api/employees');
+        const employeesResponse = await axios.get('http://localhost:5000/api/employees', {
+          timeout: 5000  // 5-second timeout
+        });
+        setEmployees(employeesResponse.data);
       } catch (error) {
-        console.error('Error fetching employees:', error);
+        console.error('Comprehensive Error Details:', {
+          message: error.message,
+          code: error.code,
+          response: error.response,
+          request: error.request,
+          config: error.config,
+          stack: error.stack
+        });
+
+        // More detailed error handling
+        if (error.response) {
+          // The request was made and the server responded with a status code
+          console.error('Server Responded with Error:', {
+            status: error.response.status,
+            data: error.response.data,
+            headers: error.response.headers
+          });
+        } else if (error.request) {
+          // The request was made but no response was received
+          console.error('No Response Received:', error.request);
+        } else {
+          // Something happened in setting up the request
+          console.error('Request Setup Error:', error.message);
+        }
       }
     };
 
-    fetchEmployees();
+    fetchData();
   }, []);
 
   // Handle bulk tasks input
@@ -39,6 +75,19 @@ const TaskInput = () => {
     // Parse tasks (split by new line)
     const tasks = value.split('\n').filter(task => task.trim() !== '');
     setParsedTasks(tasks);
+  };
+
+  // Handle employee-department input
+  const handleBulkEmployeeDepartmentChange = (e) => {
+    const value = e.target.value;
+    setBulkEmployeeDepartment(value);
+    // Parse employee-department pairs (split by new line and delimiter)
+    const pairs = value.split('\n').filter(pair => pair.trim() !== '');
+    const employeeDepartment = pairs.map(pair => {
+      const [employee, department] = pair.split(';').map(item => item.trim());
+      return { employee, department };
+    });
+    setParsedEmployeeDepartment(employeeDepartment);
   };
 
   // Handle task selection from parsed tasks
@@ -53,29 +102,170 @@ const TaskInput = () => {
   // Handle input changes
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setTask(prevTask => ({
-      ...prevTask,
-      [name]: value
-    }));
+    if (name === 'employee') {
+      const selectedPair = parsedEmployeeDepartment.find(pair => pair.employee === value);
+      setTask(prevTask => ({
+        ...prevTask,
+        employee: selectedPair ? selectedPair.employee : '',
+        department: selectedPair ? selectedPair.department : ''
+      }));
+    } else {
+      setTask(prevTask => ({
+        ...prevTask,
+        [name]: value
+      }));
+    }
+  };
+
+  // Handle bulk data submission
+  const handleBulkDataSubmission = async () => {
+    try {
+      // Save tasks to database
+      if (parsedTasks.length > 0) {
+        console.log('Preparing bulk tasks data:', parsedTasks);
+        const tasksData = parsedTasks.map(taskName => ({ 
+          name: taskName.trim(),
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        }));
+        
+        console.log('Sending bulk tasks:', { 
+          tasks: tasksData,
+          requestDetails: {
+            url: 'http://localhost:5000/api/bulk-tasks',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          }
+        });
+
+        try {
+          const tasksResponse = await axios.post('http://localhost:5000/api/bulk-tasks', { 
+            tasks: tasksData 
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          });
+          console.log('Bulk tasks saved successfully:', tasksResponse.data);
+        } catch (apiError) {
+          console.error('Detailed API Error for Bulk Tasks:', {
+            message: apiError.message,
+            response: apiError.response?.data,
+            status: apiError.response?.status,
+            config: apiError.config,
+            requestData: { tasks: tasksData }
+          });
+          throw apiError;
+        }
+      }
+
+      // Save employee-department pairs to database
+      if (parsedEmployeeDepartment.length > 0) {
+        console.log('Preparing employee-department data:', parsedEmployeeDepartment);
+        const formattedPairs = parsedEmployeeDepartment.map(pair => ({
+          employee: pair.employee.trim(),
+          department: pair.department.trim(),
+          createdAt: new Date().toISOString()
+        }));
+
+        console.log('Sending employee-department pairs:', { 
+          employeeDepartments: formattedPairs,
+          requestDetails: {
+            url: 'http://localhost:5000/api/employee-departments',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          }
+        });
+
+        try {
+          const pairsResponse = await axios.post('http://localhost:5000/api/employee-departments', { 
+            employeeDepartments: formattedPairs 
+          }, {
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          });
+          console.log('Employee-department pairs saved successfully:', pairsResponse.data);
+        } catch (apiError) {
+          console.error('Detailed API Error for Employee-Departments:', {
+            message: apiError.message,
+            response: apiError.response?.data,
+            status: apiError.response?.status,
+            config: apiError.config,
+            requestData: { employeeDepartments: formattedPairs }
+          });
+          throw apiError;
+        }
+      }
+
+      // Clear bulk input fields after successful submission
+      setBulkTasks('');
+      setBulkEmployeeDepartment('');
+      setParsedTasks([]);
+      setParsedEmployeeDepartment([]);
+
+      // Show success message
+      alert('Bulk data saved successfully!');
+
+    } catch (error) {
+      console.error('Comprehensive Error saving bulk data:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        config: error.config,
+        stack: error.stack
+      });
+      
+      // Show user-friendly error message with more details
+      alert(`Error saving bulk data: 
+        ${error.response?.data?.error || error.message}
+        
+        Status: ${error.response?.status || 'Unknown'}
+        Details: ${JSON.stringify(error.response?.data) || 'No additional details'}
+      `);
+    }
   };
 
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // Adjust the API endpoint as per your backend route
-      const response = await axios.post('/tasks', task);
+      // First save bulk data if any exists
+      await handleBulkDataSubmission();
+
+      // Then save the individual task
+      console.log('Sending individual task:', task);
+      const response = await axios.post('http://localhost:5000/api/tasks', task, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
       console.log('Task created:', response.data);
       
       // Reset form after successful submission
       setTask({
         taskName: '',
         employee: '',
+        department: '',
         date: '',
         comments: ''
       });
     } catch (error) {
-      console.error('Error creating task:', error);
+      console.error('Error creating task:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      alert(`Error creating task: ${error.response?.data?.message || error.message}`);
     }
   };
 
@@ -99,6 +289,42 @@ const TaskInput = () => {
           rows="5"
           placeholder="Enter multiple tasks, one per line"
         />
+        <p className="text-sm text-gray-600 mt-1">
+          {parsedTasks.length} tasks ready to be saved
+        </p>
+      </div>
+
+      {/* Employee-Department Input */}
+      <div className="mb-6">
+        <label 
+          htmlFor="bulkEmployeeDepartment" 
+          className="block text-gray-700 text-sm font-bold mb-2"
+        >
+          Employee-Department Input (format: employee;department)
+        </label>
+        <textarea
+          id="bulkEmployeeDepartment"
+          value={bulkEmployeeDepartment}
+          onChange={handleBulkEmployeeDepartmentChange}
+          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+          rows="5"
+          placeholder="Enter employee and department pairs, one per line (e.g., John Doe;Sales)"
+        />
+        <p className="text-sm text-gray-600 mt-1">
+          {parsedEmployeeDepartment.length} employee-department pairs ready to be saved
+        </p>
+      </div>
+
+      {/* Save Bulk Data Button */}
+      <div className="mb-6 flex justify-center">
+        <button
+          type="button"
+          onClick={handleBulkDataSubmission}
+          className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-4"
+          disabled={parsedTasks.length === 0 && parsedEmployeeDepartment.length === 0}
+        >
+          Save Bulk Data
+        </button>
       </div>
 
       <form onSubmit={handleSubmit}>
@@ -119,9 +345,9 @@ const TaskInput = () => {
             required
           >
             <option value="">Select a task</option>
-            {parsedTasks.map((task, index) => (
-              <option key={index} value={task}>
-                {task}
+            {tasks.map((task) => (
+              <option key={task.id} value={task.name}>
+                {task.name}
               </option>
             ))}
           </select>
@@ -144,12 +370,30 @@ const TaskInput = () => {
             required
           >
             <option value="">Select an employee</option>
-            {employees.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.name}
+            {employees.map((employee) => (
+              <option key={employee.id} value={employee.name}>
+                {employee.name}
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Department Display */}
+        <div className="mb-4">
+          <label 
+            htmlFor="department" 
+            className="block text-gray-700 text-sm font-bold mb-2"
+          >
+            Department
+          </label>
+          <input
+            type="text"
+            id="department"
+            name="department"
+            value={task.department}
+            readOnly
+            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+          />
         </div>
 
         {/* Date Input */}

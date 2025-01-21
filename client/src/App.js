@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import './App.css';
 
 // Import your components
@@ -9,16 +9,19 @@ import GoalList from './components/GoalList';
 
 function App() {
   return (
-    <Router>
-      <div className="App">
-        <Routes>
-          <Route path="/create-task" element={<TaskInput />} />
-          <Route path="/budget-tracker" element={<BudgetTracker />} />
-          <Route path="/goals" element={<GoalList />} />
-          <Route path="/" element={<div>Welcome to Budget Tracker</div>} />
-        </Routes>
-      </div>
-    </Router>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
+      <Routes>
+        <Route path="/" element={<div>Welcome to Budget Tracker</div>} />
+        <Route path="/create-task" element={<TaskInput />} />
+        <Route path="/budget-tracker" element={<BudgetTracker />} />
+        <Route path="/goals" element={<GoalList />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
