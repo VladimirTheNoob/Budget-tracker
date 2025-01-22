@@ -26,42 +26,74 @@ const TaskInput = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log('Attempting to fetch tasks from:', 'http://localhost:5000/api/tasks');
+        console.log('=== FETCHING TASKS AND EMPLOYEES DATA ===');
+        
+        // Fetch tasks
+        console.log('Attempting to fetch tasks from: http://localhost:5000/api/tasks');
         const tasksResponse = await axios.get('http://localhost:5000/api/tasks', {
-          timeout: 5000  // 5-second timeout
+          timeout: 10000  // 10-second timeout
         });
-        setTasks(tasksResponse.data);
+        console.log('Tasks Response:', {
+          status: tasksResponse.status,
+          data: tasksResponse.data,
+          headers: tasksResponse.headers
+        });
 
-        console.log('Attempting to fetch employees from:', 'http://localhost:5000/api/employees');
+        // Validate and set tasks
+        if (Array.isArray(tasksResponse.data)) {
+          console.log(`Setting ${tasksResponse.data.length} tasks`);
+          setTasks(tasksResponse.data);
+        } else {
+          console.error('Tasks response is not an array:', tasksResponse.data);
+          setTasks([]);
+        }
+
+        // Fetch employees
+        console.log('Attempting to fetch employees from: http://localhost:5000/api/employees');
         const employeesResponse = await axios.get('http://localhost:5000/api/employees', {
-          timeout: 5000  // 5-second timeout
+          timeout: 10000  // 10-second timeout
         });
-        setEmployees(employeesResponse.data);
-      } catch (error) {
-        console.error('Comprehensive Error Details:', {
-          message: error.message,
-          code: error.code,
-          response: error.response,
-          request: error.request,
-          config: error.config,
-          stack: error.stack
+        console.log('Employees Response:', {
+          status: employeesResponse.status,
+          data: employeesResponse.data,
+          headers: employeesResponse.headers
         });
 
-        // More detailed error handling
+        // Validate and set employees
+        if (Array.isArray(employeesResponse.data)) {
+          console.log(`Setting ${employeesResponse.data.length} employees`);
+          setEmployees(employeesResponse.data);
+        } else {
+          console.error('Employees response is not an array:', employeesResponse.data);
+          setEmployees([]);
+        }
+
+      } catch (error) {
+        console.error('=== COMPREHENSIVE DATA FETCH ERROR ===', error);
+        
+        // Detailed error logging
         if (error.response) {
-          // The request was made and the server responded with a status code
-          console.error('Server Responded with Error:', {
+          console.error('Server Response Error:', {
             status: error.response.status,
             data: error.response.data,
             headers: error.response.headers
           });
         } else if (error.request) {
-          // The request was made but no response was received
           console.error('No Response Received:', error.request);
         } else {
-          // Something happened in setting up the request
           console.error('Request Setup Error:', error.message);
         }
+
+        // Set empty arrays to prevent undefined errors
+        setTasks([]);
+        setEmployees([]);
+
+        // User-friendly error message
+        alert(`Failed to fetch tasks or employees: 
+          ${error.message}
+          
+          Please check your server connection and try again.
+        `);
       }
     };
 
@@ -103,11 +135,12 @@ const TaskInput = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === 'employee') {
-      const selectedPair = parsedEmployeeDepartment.find(pair => pair.employee === value);
+      // Find the selected employee to get their department
+      const selectedEmployee = employees.find(emp => emp.name === value);
       setTask(prevTask => ({
         ...prevTask,
-        employee: selectedPair ? selectedPair.employee : '',
-        department: selectedPair ? selectedPair.department : ''
+        employee: value,
+        department: selectedEmployee ? selectedEmployee.department : ''
       }));
     } else {
       setTask(prevTask => ({
@@ -202,6 +235,19 @@ const TaskInput = () => {
             config: apiError.config,
             requestData: { employeeDepartments: formattedPairs }
           });
+
+          // More detailed error handling
+          const errorMessage = apiError.response?.data?.error || 
+            apiError.response?.data?.details || 
+            'Failed to save employee-department pairs';
+
+          alert(`Error saving employee-department pairs: 
+            ${errorMessage}
+            
+            Status: ${apiError.response?.status || 'Unknown'}
+            Details: ${JSON.stringify(apiError.response?.data) || 'No additional details'}
+          `);
+
           throw apiError;
         }
       }
@@ -336,21 +382,32 @@ const TaskInput = () => {
           >
             Select Task
           </label>
-          <select
-            id="taskName"
-            name="taskName"
-            value={task.taskName}
-            onChange={handleTaskSelection}
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            required
-          >
-            <option value="">Select a task</option>
-            {tasks.map((task) => (
-              <option key={task.id} value={task.name}>
-                {task.name}
-              </option>
-            ))}
-          </select>
+          {(() => {
+            console.log('Rendering Tasks Dropdown:', {
+              tasksCount: tasks.length,
+              tasksData: tasks
+            });
+            return (
+              <select
+                id="taskName"
+                name="taskName"
+                value={task.taskName}
+                onChange={handleTaskSelection}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                required
+              >
+                <option value="">Select a task</option>
+                {tasks.map((taskItem) => (
+                  <option 
+                    key={`task-${taskItem.id}`} 
+                    value={taskItem.name}
+                  >
+                    {taskItem.name} - {taskItem.description}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
         </div>
 
         {/* Employee Dropdown */}
@@ -361,21 +418,32 @@ const TaskInput = () => {
           >
             Employee
           </label>
-          <select
-            id="employee"
-            name="employee"
-            value={task.employee}
-            onChange={handleChange}
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            required
-          >
-            <option value="">Select an employee</option>
-            {employees.map((employee) => (
-              <option key={employee.id} value={employee.name}>
-                {employee.name}
-              </option>
-            ))}
-          </select>
+          {(() => {
+            console.log('Rendering Employees Dropdown:', {
+              employeesCount: employees.length,
+              employeesData: employees
+            });
+            return (
+              <select
+                id="employee"
+                name="employee"
+                value={task.employee}
+                onChange={handleChange}
+                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                required
+              >
+                <option value="">Select an employee</option>
+                {employees.map((employee) => (
+                  <option 
+                    key={`employee-${employee.id}`} 
+                    value={employee.name}
+                  >
+                    {employee.name} - {employee.department}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
         </div>
 
         {/* Department Display */}
@@ -390,7 +458,9 @@ const TaskInput = () => {
             type="text"
             id="department"
             name="department"
-            value={task.department}
+            value={
+              employees.find(emp => emp.name === task.employee)?.department || ''
+            }
             readOnly
             className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
           />

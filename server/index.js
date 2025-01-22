@@ -69,16 +69,44 @@ app.get('/', (req, res) => {
   });
 });
 
-// Mock data storage (replace with database later)
-let tasks = [];
-let employeeDepartments = [];
-
-// Mock employee data (replace with database query later)
-const employees = [
-  { id: 1, name: 'John Doe' },
-  { id: 2, name: 'Jane Smith' },
-  // Add more employee objects as needed
+// Mock data storage with more detailed structure
+let tasks = [
+  { 
+    id: 1, 
+    name: 'Project Planning', 
+    description: 'Develop project roadmap',
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  },
+  { 
+    id: 2, 
+    name: 'Budget Review', 
+    description: 'Quarterly budget analysis',
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  }
 ];
+
+// More detailed employee data
+const employees = [
+  { 
+    id: 1, 
+    name: 'John Doe', 
+    department: 'Sales', 
+    email: 'john.doe@company.com',
+    position: 'Sales Manager'
+  },
+  { 
+    id: 2, 
+    name: 'Jane Smith', 
+    department: 'Marketing', 
+    email: 'jane.smith@company.com',
+    position: 'Marketing Specialist'
+  }
+];
+
+// Declare employeeDepartments array at the top level
+let employeeDepartments = [];
 
 // Bulk tasks route with extensive logging and explicit path
 app.post('/api/bulk-tasks', (req, res) => {
@@ -129,19 +157,47 @@ app.post('/api/bulk-tasks', (req, res) => {
 // Employee-departments route
 app.post('/api/employee-departments', (req, res) => {
   try {
+    console.log('=== EMPLOYEE-DEPARTMENTS ROUTE HANDLER CALLED ===');
+    console.log('Received Request Body:', req.body);
+
     const { employeeDepartments: newPairs } = req.body;
-    console.log('Received employee-department pairs:', newPairs);
     
-    // Store employee-department pairs (replace with database operation)
-    employeeDepartments = [...employeeDepartments, ...newPairs];
+    // Validate input
+    if (!newPairs || !Array.isArray(newPairs)) {
+      console.error('Invalid employee-department pairs:', req.body);
+      return res.status(400).json({ 
+        error: 'Invalid employee-department pairs. Expected an array.',
+        receivedBody: req.body
+      });
+    }
+
+    // Validate each pair
+    const validPairs = newPairs.filter(pair => 
+      pair.employee && pair.department
+    );
+
+    console.log('Validated employee-department pairs:', validPairs);
+    
+    // Store validated pairs (replace with database operation)
+    employeeDepartments = [...employeeDepartments, ...validPairs];
     
     res.status(201).json({ 
       message: 'Employee-department pairs created successfully', 
-      pairsCount: newPairs.length 
+      pairsCount: validPairs.length,
+      pairs: validPairs
     });
   } catch (error) {
-    console.error('Error creating employee-department pairs:', error);
-    res.status(500).json({ error: 'Failed to create employee-department pairs' });
+    console.error('Detailed Error in /api/employee-departments handler:', {
+      message: error.message,
+      stack: error.stack,
+      requestBody: req.body
+    });
+
+    res.status(500).json({ 
+      error: 'Failed to create employee-department pairs', 
+      details: error.message,
+      stack: error.stack 
+    });
   }
 });
 
@@ -164,9 +220,36 @@ app.post('/api/tasks', (req, res) => {
   }
 });
 
-// Get all tasks
+// Enhanced routes for tasks
 app.get('/api/tasks', (req, res) => {
-  res.json(tasks);
+  try {
+    console.group('📤 Sending Tasks');
+    
+    // Ensure each task has required fields and a unique ID
+    const processedTasks = tasks.map((task, index) => {
+      const processedTask = {
+        id: task.id || task._id || `task-${index}-${Date.now()}`,
+        name: task.name || `Task ${index + 1}`,
+        description: task.description || 'No description',
+        // Preserve any other existing fields
+        ...task
+      };
+
+      console.log('Processed task:', processedTask);
+      return processedTask;
+    });
+
+    console.log('Sending tasks:', processedTasks);
+    console.groupEnd();
+    
+    res.status(200).json(processedTasks);
+  } catch (error) {
+    console.error('Error processing tasks:', error);
+    res.status(500).json({ 
+      error: 'Failed to retrieve tasks',
+      details: error.message 
+    });
+  }
 });
 
 // Get all employee-department pairs
@@ -174,24 +257,12 @@ app.get('/api/employee-departments', (req, res) => {
   res.json(employeeDepartments);
 });
 
-// Enhanced route logging function
-function logRoutesComprehensively(app) {
-  console.log('=== COMPREHENSIVE ROUTE REGISTRATION ===');
-  app._router.stack.forEach(function(middleware){
-    if (middleware.route) {
-      // Routes
-      console.log(`Route: ${Object.keys(middleware.route.methods).join(', ')} ${middleware.route.path}`);
-    } else if (middleware.name === 'router') {
-      // Router-level middleware
-      middleware.handle.stack.forEach(function(handler){
-        if (handler.route) {
-          console.log(`Nested Route: ${Object.keys(handler.route.methods).join(', ')} ${handler.route.path}`);
-        }
-      });
-    }
-  });
-  console.log('=== END COMPREHENSIVE ROUTE REGISTRATION ===');
-}
+// Enhanced route for employees
+app.get('/api/employees', (req, res) => {
+  console.log('=== FETCHING EMPLOYEES ===');
+  console.log('Current Employees:', employees);
+  res.status(200).json(employees);
+});
 
 // Detailed CORS configuration
 app.use(cors({
@@ -200,22 +271,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-
-// Ensure employees route is explicitly and thoroughly logged
-console.log('=== REGISTERING /api/employees ROUTE ===');
-app.get('/api/employees', (req, res) => {
-  console.log('=== GET /api/employees ROUTE HANDLER ===');
-  console.log('Received Request Headers:', req.headers);
-  console.log('Server-side Employees Data:', employees);
-  
-  // Add CORS headers manually for extra safety
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  res.status(200).json(employees);
-});
-console.log('=== /api/employees ROUTE REGISTERED ===');
 
 // Error handling middleware
 app.use((err, req, res, next) => {
