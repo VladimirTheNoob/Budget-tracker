@@ -49,19 +49,12 @@ const TaskInput = () => {
         }
 
         // Fetch employees
-        console.log('Attempting to fetch employees from: http://localhost:5000/api/employees');
+        console.log('Fetching employees...');
         const employeesResponse = await axios.get('http://localhost:5000/api/employees', {
-          timeout: 10000  // 10-second timeout
+          timeout: 10000
         });
-        console.log('Employees Response:', {
-          status: employeesResponse.status,
-          data: employeesResponse.data,
-          headers: employeesResponse.headers
-        });
-
-        // Validate and set employees
+        console.log('Employees fetched:', employeesResponse.data);
         if (Array.isArray(employeesResponse.data)) {
-          console.log(`Setting ${employeesResponse.data.length} employees`);
           setEmployees(employeesResponse.data);
         } else {
           console.error('Employees response is not an array:', employeesResponse.data);
@@ -220,13 +213,16 @@ const TaskInput = () => {
         try {
           const pairsResponse = await axios.post('http://localhost:5000/api/employee-departments', { 
             employeeDepartments: formattedPairs 
-          }, {
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            }
           });
           console.log('Employee-department pairs saved successfully:', pairsResponse.data);
+          
+          // Refresh employees list after successful submission
+          console.log('Refreshing employees list...');
+          const employeesResponse = await axios.get('http://localhost:5000/api/employees');
+          if (Array.isArray(employeesResponse.data)) {
+            console.log('Updated employees list:', employeesResponse.data);
+            setEmployees(employeesResponse.data);
+          }
         } catch (apiError) {
           console.error('Detailed API Error for Employee-Departments:', {
             message: apiError.message,
@@ -235,19 +231,6 @@ const TaskInput = () => {
             config: apiError.config,
             requestData: { employeeDepartments: formattedPairs }
           });
-
-          // More detailed error handling
-          const errorMessage = apiError.response?.data?.error || 
-            apiError.response?.data?.details || 
-            'Failed to save employee-department pairs';
-
-          alert(`Error saving employee-department pairs: 
-            ${errorMessage}
-            
-            Status: ${apiError.response?.status || 'Unknown'}
-            Details: ${JSON.stringify(apiError.response?.data) || 'No additional details'}
-          `);
-
           throw apiError;
         }
       }
@@ -270,7 +253,6 @@ const TaskInput = () => {
         stack: error.stack
       });
       
-      // Show user-friendly error message with more details
       alert(`Error saving bulk data: 
         ${error.response?.data?.error || error.message}
         
@@ -419,10 +401,15 @@ const TaskInput = () => {
             Employee
           </label>
           {(() => {
-            console.log('Rendering Employees Dropdown:', {
-              employeesCount: employees.length,
-              employeesData: employees
-            });
+            console.log('=== EMPLOYEE DROPDOWN DEBUG ===');
+            console.log('Current employees state:', employees);
+            console.log('Current task.employee value:', task.employee);
+            console.log('Number of employees:', employees.length);
+            
+            if (employees.length === 0) {
+              console.log('Warning: No employees available in the dropdown');
+            }
+
             return (
               <select
                 id="employee"
@@ -433,14 +420,17 @@ const TaskInput = () => {
                 required
               >
                 <option value="">Select an employee</option>
-                {employees.map((employee) => (
-                  <option 
-                    key={`employee-${employee.id}`} 
-                    value={employee.name}
-                  >
-                    {employee.name} - {employee.department}
-                  </option>
-                ))}
+                {employees.map((employee, index) => {
+                  console.log(`Rendering employee option ${index}:`, employee);
+                  return (
+                    <option 
+                      key={`employee-${employee.id || index}`} 
+                      value={employee.name}
+                    >
+                      {employee.name}
+                    </option>
+                  );
+                })}
               </select>
             );
           })()}

@@ -159,6 +159,7 @@ app.post('/api/employee-departments', (req, res) => {
   try {
     console.log('=== EMPLOYEE-DEPARTMENTS ROUTE HANDLER CALLED ===');
     console.log('Received Request Body:', req.body);
+    console.log('Current employees before update:', employees);
 
     const { employeeDepartments: newPairs } = req.body;
     
@@ -171,20 +172,46 @@ app.post('/api/employee-departments', (req, res) => {
       });
     }
 
-    // Validate each pair
+    // Validate each pair and create new employees
     const validPairs = newPairs.filter(pair => 
       pair.employee && pair.department
     );
 
     console.log('Validated employee-department pairs:', validPairs);
     
-    // Store validated pairs (replace with database operation)
+    // Update both employeeDepartments and employees arrays
     employeeDepartments = [...employeeDepartments, ...validPairs];
+    
+    // Add new employees if they don't exist
+    validPairs.forEach((pair, index) => {
+      const existingEmployee = employees.find(emp => 
+        emp.name.toLowerCase() === pair.employee.toLowerCase()
+      );
+      
+      if (!existingEmployee) {
+        const newEmployee = {
+          id: `emp-${Date.now()}-${index}`,
+          name: pair.employee.trim(),
+          department: pair.department.trim(),
+          email: `${pair.employee.toLowerCase().replace(/\s+/g, '.')}@company.com`,
+          position: 'Employee'
+        };
+        console.log('Adding new employee:', newEmployee);
+        employees.push(newEmployee);
+      } else {
+        console.log('Employee already exists:', existingEmployee);
+      }
+    });
+
+    console.log('Updated employees array:', employees);
+    console.log(`Total employees after update: ${employees.length}`);
     
     res.status(201).json({ 
       message: 'Employee-department pairs created successfully', 
       pairsCount: validPairs.length,
-      pairs: validPairs
+      pairs: validPairs,
+      currentEmployees: employees,
+      totalEmployees: employees.length
     });
   } catch (error) {
     console.error('Detailed Error in /api/employee-departments handler:', {
@@ -260,8 +287,28 @@ app.get('/api/employee-departments', (req, res) => {
 // Enhanced route for employees
 app.get('/api/employees', (req, res) => {
   console.log('=== FETCHING EMPLOYEES ===');
-  console.log('Current Employees:', employees);
-  res.status(200).json(employees);
+  console.log('Raw employees data:', employees);
+  
+  try {
+    // Ensure each employee has required fields
+    const processedEmployees = employees.map((emp, index) => ({
+      id: emp.id || `emp-${index}-${Date.now()}`,
+      name: emp.name || 'Unknown Employee',
+      department: emp.department || 'Unassigned',
+      ...emp
+    }));
+    
+    console.log('Processed employees data:', processedEmployees);
+    console.log('Number of employees:', processedEmployees.length);
+    
+    res.status(200).json(processedEmployees);
+  } catch (error) {
+    console.error('Error processing employees:', error);
+    res.status(500).json({ 
+      error: 'Failed to retrieve employees',
+      details: error.message 
+    });
+  }
 });
 
 // Detailed CORS configuration
