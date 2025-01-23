@@ -1,6 +1,8 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 // Load environment variables
 dotenv.config();
@@ -55,55 +57,54 @@ app.use((req, res, next) => {
 // Debugging route registration
 console.log('Registering routes...');
 
-// Basic route to verify server is working
-app.get('/', (req, res) => {
-  console.log('Root route accessed');
-  res.status(200).json({ 
-    message: 'Server is running',
-    routes: [
-      '/api/bulk-tasks',
-      '/api/employee-departments',
-      '/api/tasks',
-      '/api/employees'  // Explicitly list employees route
-    ]
-  });
-});
+// Create storage directory if it doesn't exist
+const storageDir = path.join(__dirname, 'storage');
+if (!fs.existsSync(storageDir)) {
+  fs.mkdirSync(storageDir);
+  console.log('Storage directory created:', storageDir);
+}
 
-// Mock data storage with more detailed structure
-let tasks = [
-  { 
-    id: 1, 
-    name: 'Project Planning', 
-    description: 'Develop project roadmap',
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  },
-  { 
-    id: 2, 
-    name: 'Budget Review', 
-    description: 'Quarterly budget analysis',
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  }
-];
+// File paths for storage
+const tasksFile = path.join(storageDir, 'tasks.json');
+const employeesFile = path.join(storageDir, 'employees.json');
 
-// More detailed employee data
-const employees = [
-  { 
-    id: 1, 
-    name: 'John Doe', 
-    department: 'Sales', 
-    email: 'john.doe@company.com',
-    position: 'Sales Manager'
-  },
-  { 
-    id: 2, 
-    name: 'Jane Smith', 
-    department: 'Marketing', 
-    email: 'jane.smith@company.com',
-    position: 'Marketing Specialist'
+// Create tasks.json file if it doesn't exist
+if (!fs.existsSync(tasksFile)) {
+  fs.writeFileSync(tasksFile, '[]', 'utf8');
+  console.log('tasks.json file created');
+}
+
+// Create employees.json file if it doesn't exist  
+if (!fs.existsSync(employeesFile)) {
+  fs.writeFileSync(employeesFile, '[]', 'utf8');
+  console.log('employees.json file created');
+}
+
+// Helper function to read data from a JSON file
+const readJsonFile = (filePath) => {
+  try {
+    const data = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error(`Error reading file ${filePath}:`, error);
+    return [];
   }
-];
+};
+
+// Helper function to write data to a JSON file  
+const writeJsonFile = (filePath, data) => {
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+    console.log(`Data written to ${filePath}`);
+  } catch (error) {
+    console.error(`Error writing file ${filePath}:`, error);
+  }
+};
+
+// Load initial data from JSON files
+let tasks = readJsonFile(tasksFile);
+console.log('Loaded tasks from file:', tasks);
+let employees = readJsonFile(employeesFile);
 
 // Declare employeeDepartments array at the top level
 let employeeDepartments = [];
@@ -136,6 +137,7 @@ app.post('/api/bulk-tasks', (req, res) => {
     
     // Store tasks (replace with database operation)
     tasks = [...tasks, ...newTasks];
+    writeJsonFile(tasksFile, tasks);
     
     console.log('Updated tasks array:', tasks);
 
@@ -206,6 +208,8 @@ app.post('/api/employee-departments', (req, res) => {
     console.log('Updated employees array:', employees);
     console.log(`Total employees after update: ${employees.length}`);
     
+    writeJsonFile(employeesFile, employees);
+    
     res.status(201).json({ 
       message: 'Employee-department pairs created successfully', 
       pairsCount: validPairs.length,
@@ -236,6 +240,7 @@ app.post('/api/tasks', (req, res) => {
     
     // Store task (replace with database operation)
     tasks.push(task);
+    writeJsonFile(tasksFile, tasks);
     
     res.status(201).json({ 
       message: 'Task created successfully', 
