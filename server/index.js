@@ -161,7 +161,6 @@ app.post('/api/employee-departments', (req, res) => {
   try {
     console.log('=== EMPLOYEE-DEPARTMENTS ROUTE HANDLER CALLED ===');
     console.log('Received Request Body:', req.body);
-    console.log('Current employees before update:', employees);
 
     const { employeeDepartments: newPairs } = req.body;
     
@@ -174,41 +173,46 @@ app.post('/api/employee-departments', (req, res) => {
       });
     }
 
-    // Validate each pair and create new employees
-    const validPairs = newPairs.filter(pair => 
-      pair.employee && pair.department
-    );
+    console.log('Processing pairs:', newPairs);
 
-    console.log('Validated employee-department pairs:', validPairs);
-    
-    // Update both employeeDepartments and employees arrays
-    employeeDepartments = [...employeeDepartments, ...validPairs];
-    
-    // Add new employees if they don't exist
-    validPairs.forEach((pair, index) => {
-      const existingEmployee = employees.find(emp => 
-        emp.name.toLowerCase() === pair.employee.toLowerCase()
-      );
-      
-      if (!existingEmployee) {
-        const newEmployee = {
-          id: `emp-${Date.now()}-${index}`,
-          name: pair.employee.trim(),
-          department: pair.department.trim(),
-          email: `${pair.employee.toLowerCase().replace(/\s+/g, '.')}@company.com`,
-          position: 'Employee'
-        };
-        console.log('Adding new employee:', newEmployee);
-        employees.push(newEmployee);
-      } else {
-        console.log('Employee already exists:', existingEmployee);
+    // Validate each pair and create new employees
+    const validPairs = newPairs.filter(pair => {
+      const isValid = pair && pair.employee && pair.department && pair.email;
+      if (!isValid) {
+        console.log('Invalid pair:', pair);
       }
+      return isValid;
     });
 
-    console.log('Updated employees array:', employees);
-    console.log(`Total employees after update: ${employees.length}`);
+    if (validPairs.length === 0) {
+      console.error('No valid pairs found in:', newPairs);
+      return res.status(400).json({
+        error: 'No valid employee-department pairs found',
+        receivedPairs: newPairs
+      });
+    }
+
+    console.log('Valid pairs:', validPairs);
     
-    writeJsonFile(employeesFile, employees);
+    // Create new employees array
+    const updatedEmployees = validPairs.map((pair, index) => ({
+      id: `emp-${Date.now()}-${index}`,
+      name: pair.employee.trim(),
+      department: pair.department.trim(),
+      email: pair.email.trim(),
+      position: 'Employee'
+    }));
+
+    console.log('Created employees:', updatedEmployees);
+    
+    // Save to file
+    writeJsonFile(employeesFile, updatedEmployees);
+    
+    // Update in-memory arrays
+    employees = updatedEmployees;
+    employeeDepartments = validPairs;
+    
+    console.log('Final employees array:', employees);
     
     res.status(201).json({ 
       message: 'Employee-department pairs created successfully', 
@@ -218,16 +222,10 @@ app.post('/api/employee-departments', (req, res) => {
       totalEmployees: employees.length
     });
   } catch (error) {
-    console.error('Detailed Error in /api/employee-departments handler:', {
-      message: error.message,
-      stack: error.stack,
-      requestBody: req.body
-    });
-
+    console.error('Error in /api/employee-departments handler:', error);
     res.status(500).json({ 
       error: 'Failed to create employee-department pairs', 
-      details: error.message,
-      stack: error.stack 
+      details: error.message
     });
   }
 });
@@ -249,6 +247,36 @@ app.post('/api/tasks', (req, res) => {
   } catch (error) {
     console.error('Error creating task:', error);
     res.status(500).json({ error: 'Failed to create task' });
+  }
+});
+
+// Delete all data endpoint
+app.delete('/api/tasks/all', (req, res) => {
+  try {
+    console.log('=== DELETE ALL DATA ROUTE HANDLER CALLED ===');
+    
+    // Clear the arrays
+    tasks = [];
+    employees = [];
+    employeeDepartments = [];
+    
+    // Write empty arrays to files
+    writeJsonFile(tasksFile, []);
+    writeJsonFile(employeesFile, []);
+    
+    console.log('All data has been cleared');
+    
+    res.status(200).json({ 
+      message: 'All data has been successfully deleted',
+      tasksCount: 0,
+      employeesCount: 0
+    });
+  } catch (error) {
+    console.error('Error deleting all data:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete all data', 
+      details: error.message 
+    });
   }
 });
 
@@ -289,28 +317,18 @@ app.get('/api/employee-departments', (req, res) => {
   res.json(employeeDepartments);
 });
 
-// Enhanced route for employees
+// Get all employees
 app.get('/api/employees', (req, res) => {
-  console.log('=== FETCHING EMPLOYEES ===');
-  console.log('Raw employees data:', employees);
-  
   try {
-    // Ensure each employee has required fields
-    const processedEmployees = employees.map((emp, index) => ({
-      id: emp.id || `emp-${index}-${Date.now()}`,
-      name: emp.name || 'Unknown Employee',
-      department: emp.department || 'Unassigned',
-      ...emp
-    }));
-    
-    console.log('Processed employees data:', processedEmployees);
-    console.log('Number of employees:', processedEmployees.length);
-    
-    res.status(200).json(processedEmployees);
+    console.log('=== GET EMPLOYEES ROUTE HANDLER CALLED ===');
+    // Read the latest data from file
+    const currentEmployees = readJsonFile(employeesFile);
+    console.log('Sending employees:', currentEmployees);
+    res.status(200).json(currentEmployees);
   } catch (error) {
-    console.error('Error processing employees:', error);
+    console.error('Error fetching employees:', error);
     res.status(500).json({ 
-      error: 'Failed to retrieve employees',
+      error: 'Failed to fetch employees',
       details: error.message 
     });
   }

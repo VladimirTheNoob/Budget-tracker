@@ -6,6 +6,7 @@ const TaskInput = () => {
   const [task, setTask] = useState({
     taskName: '',
     employee: '',
+    mail: '', 
     date: '',
     comments: ''
   });
@@ -24,69 +25,33 @@ const TaskInput = () => {
 
   // Fetch tasks and employees data when the component mounts
   useEffect(() => {
+    console.log('=== FETCHING TASKS AND EMPLOYEES DATA ===');
+    
     const fetchData = async () => {
       try {
-        console.log('=== FETCHING TASKS AND EMPLOYEES DATA ===');
-        
         // Fetch tasks
-        console.log('Attempting to fetch tasks from: http://localhost:5000/api/tasks');
-        const tasksResponse = await axios.get('http://localhost:5000/api/tasks', {
-          timeout: 10000  // 10-second timeout
-        });
-        console.log('Tasks Response:', {
-          status: tasksResponse.status,
-          data: tasksResponse.data,
-          headers: tasksResponse.headers
-        });
-
-        // Validate and set tasks
+        console.log('Attempting to fetch tasks from:', 'http://localhost:5000/api/tasks');
+        const tasksResponse = await axios.get('http://localhost:5000/api/tasks');
+        console.log('Tasks Response:', tasksResponse);
+        
         if (Array.isArray(tasksResponse.data)) {
           console.log(`Setting ${tasksResponse.data.length} tasks`);
           setTasks(tasksResponse.data);
-        } else {
-          console.error('Tasks response is not an array:', tasksResponse.data);
-          setTasks([]);
         }
 
         // Fetch employees
         console.log('Fetching employees...');
-        const employeesResponse = await axios.get('http://localhost:5000/api/employees', {
-          timeout: 10000
-        });
-        console.log('Employees fetched:', employeesResponse.data);
-        if (Array.isArray(employeesResponse.data)) {
-          setEmployees(employeesResponse.data);
-        } else {
-          console.error('Employees response is not an array:', employeesResponse.data);
-          setEmployees([]);
-        }
-
-      } catch (error) {
-        console.error('=== COMPREHENSIVE DATA FETCH ERROR ===', error);
+        const employeesResponse = await axios.get('http://localhost:5000/api/employees');
+        console.log('Employees Response:', employeesResponse);
         
-        // Detailed error logging
-        if (error.response) {
-          console.error('Server Response Error:', {
-            status: error.response.status,
-            data: error.response.data,
-            headers: error.response.headers
-          });
-        } else if (error.request) {
-          console.error('No Response Received:', error.request);
-        } else {
-          console.error('Request Setup Error:', error.message);
+        if (Array.isArray(employeesResponse.data)) {
+          console.log('Setting employees:', employeesResponse.data);
+          setEmployees(employeesResponse.data);
         }
-
-        // Set empty arrays to prevent undefined errors
-        setTasks([]);
-        setEmployees([]);
-
-        // User-friendly error message
-        alert(`Failed to fetch tasks or employees: 
-          ${error.message}
-          
-          Please check your server connection and try again.
-        `);
+        
+        console.log('Employees fetched:', employeesResponse.data);
+      } catch (error) {
+        console.error('Error fetching data:', error);
       }
     };
 
@@ -106,11 +71,11 @@ const TaskInput = () => {
   const handleBulkEmployeeDepartmentChange = (e) => {
     const value = e.target.value;
     setBulkEmployeeDepartment(value);
-    // Parse employee-department pairs (split by new line and delimiter)
+    // Parse employee-department-email triplets (split by new line and delimiter)
     const pairs = value.split('\n').filter(pair => pair.trim() !== '');
     const employeeDepartment = pairs.map(pair => {
-      const [employee, department] = pair.split(';').map(item => item.trim());
-      return { employee, department };
+      const [employee, department, email] = pair.split(';').map(item => item.trim());
+      return { employee, department, email };
     });
     setParsedEmployeeDepartment(employeeDepartment);
   };
@@ -128,12 +93,13 @@ const TaskInput = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === 'employee') {
-      // Find the selected employee to get their department
+      // Find the selected employee to get their department and email
       const selectedEmployee = employees.find(emp => emp.name === value);
       setTask(prevTask => ({
         ...prevTask,
         employee: value,
-        department: selectedEmployee ? selectedEmployee.department : ''
+        department: selectedEmployee ? selectedEmployee.department : '',
+        mail: selectedEmployee ? selectedEmployee.email : ''
       }));
     } else {
       setTask(prevTask => ({
@@ -189,24 +155,22 @@ const TaskInput = () => {
         }
       }
 
-      // Save employee-department pairs to database
+      // Format employee-department pairs if they exist
       if (parsedEmployeeDepartment.length > 0) {
         console.log('Preparing employee-department data:', parsedEmployeeDepartment);
+        
+        // Format the pairs for the API
         const formattedPairs = parsedEmployeeDepartment.map(pair => ({
-          employee: pair.employee.trim(),
-          department: pair.department.trim(),
-          createdAt: new Date().toISOString()
+          employee: pair.employee,
+          department: pair.department,
+          email: pair.email
         }));
 
-        console.log('Sending employee-department pairs:', { 
+        console.log('Sending employee-department pairs:', {
           employeeDepartments: formattedPairs,
           requestDetails: {
             url: 'http://localhost:5000/api/employee-departments',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            }
+            method: 'POST'
           }
         });
 
@@ -224,14 +188,8 @@ const TaskInput = () => {
             setEmployees(employeesResponse.data);
           }
         } catch (apiError) {
-          console.error('Detailed API Error for Employee-Departments:', {
-            message: apiError.message,
-            response: apiError.response?.data,
-            status: apiError.response?.status,
-            config: apiError.config,
-            requestData: { employeeDepartments: formattedPairs }
-          });
-          throw apiError;
+          console.error('Error saving employee-department pairs:', apiError);
+          throw new Error(`Failed to save employee-department pairs: ${apiError.message}`);
         }
       }
 
@@ -259,6 +217,32 @@ const TaskInput = () => {
         Status: ${error.response?.status || 'Unknown'}
         Details: ${JSON.stringify(error.response?.data) || 'No additional details'}
       `);
+    }
+  };
+
+  // Handle delete all data
+  const handleDeleteAllData = async () => {
+    try {
+      const response = await axios.delete('http://localhost:5000/api/tasks/all');
+      if (response.status === 200) {
+        alert('All data has been successfully deleted');
+        // Reset any local state if needed
+        setParsedTasks([]);
+        setParsedEmployeeDepartment([]);
+        setBulkTasks('');
+        setBulkEmployeeDepartment('');
+        setTask({
+          taskName: '',
+          employee: '',
+          department: '',
+          mail: '',
+          date: '',
+          comments: ''
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting data:', error);
+      alert('Failed to delete data. Please try again.');
     }
   };
 
@@ -298,212 +282,251 @@ const TaskInput = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-6 text-center">Create Task</h2>
-      
-      {/* Bulk Tasks Input */}
-      <div className="mb-6">
-        <label 
-          htmlFor="bulkTasks" 
-          className="block text-gray-700 text-sm font-bold mb-2"
-        >
-          Bulk Tasks Input (one task per line)
-        </label>
-        <textarea
-          id="bulkTasks"
-          value={bulkTasks}
-          onChange={handleBulkTasksChange}
-          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-          rows="5"
-          placeholder="Enter multiple tasks, one per line"
-        />
-        <p className="text-sm text-gray-600 mt-1">
-          {parsedTasks.length} tasks ready to be saved
-        </p>
-      </div>
+    <div className="container mx-auto p-4">
+      {/* Bulk Inputs Section */}
+      <div className="max-w-7xl mx-auto mb-6 bg-white rounded-lg shadow-md p-4">
+        <h2 className="text-xl font-bold mb-4 text-center">Bulk Data Input</h2>
+        
+        <div className="flex space-x-6">
+          {/* Bulk Tasks Input */}
+          <div className="w-1/2">
+            <label 
+              htmlFor="bulkTasks" 
+              className="block text-gray-700 text-sm font-bold mb-2 text-center"
+            >
+              Bulk Tasks Input (one task per line)
+            </label>
+            <textarea
+              id="bulkTasks"
+              value={bulkTasks}
+              onChange={handleBulkTasksChange}
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              rows="4"
+              placeholder="Enter multiple tasks, one per line"
+            />
+            <p className="text-sm text-gray-600 mt-1 text-center">
+              {parsedTasks.length} tasks ready to be saved
+            </p>
+          </div>
 
-      {/* Employee-Department Input */}
-      <div className="mb-6">
-        <label 
-          htmlFor="bulkEmployeeDepartment" 
-          className="block text-gray-700 text-sm font-bold mb-2"
-        >
-          Employee-Department Input (format: employee;department)
-        </label>
-        <textarea
-          id="bulkEmployeeDepartment"
-          value={bulkEmployeeDepartment}
-          onChange={handleBulkEmployeeDepartmentChange}
-          className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-          rows="5"
-          placeholder="Enter employee and department pairs, one per line (e.g., John Doe;Sales)"
-        />
-        <p className="text-sm text-gray-600 mt-1">
-          {parsedEmployeeDepartment.length} employee-department pairs ready to be saved
-        </p>
-      </div>
-
-      {/* Save Bulk Data Button */}
-      <div className="mb-6 flex justify-center">
-        <button
-          type="button"
-          onClick={handleBulkDataSubmission}
-          className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mr-4"
-          disabled={parsedTasks.length === 0 && parsedEmployeeDepartment.length === 0}
-        >
-          Save Bulk Data
-        </button>
-      </div>
-
-      <form onSubmit={handleSubmit}>
-        {/* Task Selection Dropdown */}
-        <div className="mb-4">
-          <label 
-            htmlFor="taskName" 
-            className="block text-gray-700 text-sm font-bold mb-2"
-          >
-            Select Task
-          </label>
-          {(() => {
-            console.log('Rendering Tasks Dropdown:', {
-              tasksCount: tasks.length,
-              tasksData: tasks
-            });
-            return (
-              <select
-                id="taskName"
-                name="taskName"
-                value={task.taskName}
-                onChange={handleTaskSelection}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                required
-              >
-                <option value="">Select a task</option>
-                {tasks.map((taskItem) => (
-                  <option 
-                    key={`task-${taskItem.id}`} 
-                    value={taskItem.name}
-                  >
-                    {taskItem.name} - {taskItem.description}
-                  </option>
-                ))}
-              </select>
-            );
-          })()}
+          {/* Employee-Department Input */}
+          <div className="w-1/2">
+            <label 
+              htmlFor="bulkEmployeeDepartment" 
+              className="block text-gray-700 text-sm font-bold mb-2 text-center"
+            >
+              Employee-Department-Mail Input (format: employee;department;email)
+            </label>
+            <textarea
+              id="bulkEmployeeDepartment"
+              value={bulkEmployeeDepartment}
+              onChange={handleBulkEmployeeDepartmentChange}
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              rows="4"
+              placeholder="Enter employee, department and email, one per line (e.g., John Doe;Sales;john.doe@example.com)"
+            />
+            <p className="text-sm text-gray-600 mt-1 text-center">
+              {parsedEmployeeDepartment.length} employee-department-mail entries ready to be saved
+            </p>
+          </div>
         </div>
 
-        {/* Employee Dropdown */}
-        <div className="mb-4">
-          <label 
-            htmlFor="employee" 
-            className="block text-gray-700 text-sm font-bold mb-2"
-          >
-            Employee
-          </label>
-          {(() => {
-            console.log('=== EMPLOYEE DROPDOWN DEBUG ===');
-            console.log('Current employees state:', employees);
-            console.log('Current task.employee value:', task.employee);
-            console.log('Number of employees:', employees.length);
-            
-            if (employees.length === 0) {
-              console.log('Warning: No employees available in the dropdown');
-            }
-
-            return (
-              <select
-                id="employee"
-                name="employee"
-                value={task.employee}
-                onChange={handleChange}
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                required
-              >
-                <option value="">Select an employee</option>
-                {employees.map((employee, index) => {
-                  console.log(`Rendering employee option ${index}:`, employee);
-                  return (
-                    <option 
-                      key={`employee-${employee.id || index}`} 
-                      value={employee.name}
-                    >
-                      {employee.name}
-                    </option>
-                  );
-                })}
-              </select>
-            );
-          })()}
-        </div>
-
-        {/* Department Display */}
-        <div className="mb-4">
-          <label 
-            htmlFor="department" 
-            className="block text-gray-700 text-sm font-bold mb-2"
-          >
-            Department
-          </label>
-          <input
-            type="text"
-            id="department"
-            name="department"
-            value={
-              employees.find(emp => emp.name === task.employee)?.department || ''
-            }
-            readOnly
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-          />
-        </div>
-
-        {/* Date Input */}
-        <div className="mb-4">
-          <label 
-            htmlFor="date" 
-            className="block text-gray-700 text-sm font-bold mb-2"
-          >
-            Date
-          </label>
-          <input
-            type="date"
-            id="date"
-            name="date"
-            value={task.date}
-            onChange={handleChange}
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            required
-          />
-        </div>
-
-        {/* Comments Input */}
-        <div className="mb-4">
-          <label 
-            htmlFor="comments" 
-            className="block text-gray-700 text-sm font-bold mb-2"
-          >
-            Comments
-          </label>
-          <textarea
-            id="comments"
-            name="comments"
-            value={task.comments}
-            onChange={handleChange}
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-            placeholder="Enter any additional comments"
-            rows="4"
-          />
-        </div>
-
-        {/* Submit Button */}
-        <div className="flex items-center justify-center">
+        {/* Save and Delete Buttons */}
+        <div className="flex justify-center space-x-4 mt-4">
           <button
-            type="submit"
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            type="button"
+            onClick={handleBulkDataSubmission}
+            className="w-48 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:shadow-outline"
+            disabled={parsedTasks.length === 0 && parsedEmployeeDepartment.length === 0}
           >
-            Create Task
+            Save Bulk Data
+          </button>
+          
+          <button
+            type="button"
+            onClick={handleDeleteAllData}
+            className="w-48 bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:shadow-outline"
+          >
+            Delete All Items
           </button>
         </div>
-      </form>
+      </div>
+
+      {/* Individual Task Form */}
+      <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-4">
+        <h2 className="text-xl font-bold mb-4 text-center">Create Task</h2>
+        <form onSubmit={handleSubmit}>
+          {/* Task Selection Dropdown */}
+          <div className="mb-4">
+            <label 
+              htmlFor="taskName" 
+              className="block text-gray-700 text-sm font-bold mb-2"
+            >
+              Select Task
+            </label>
+            {(() => {
+              console.log('Rendering Tasks Dropdown:', {
+                tasksCount: tasks.length,
+                tasksData: tasks
+              });
+              return (
+                <select
+                  id="taskName"
+                  name="taskName"
+                  value={task.taskName}
+                  onChange={handleTaskSelection}
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  required
+                >
+                  <option value="">Select a task</option>
+                  {tasks.map((taskItem) => (
+                    <option 
+                      key={`task-${taskItem.id}`} 
+                      value={taskItem.name}
+                    >
+                      {taskItem.name} - {taskItem.description}
+                    </option>
+                  ))}
+                </select>
+              );
+            })()}
+          </div>
+
+          {/* Employee Dropdown */}
+          <div className="mb-4">
+            <label 
+              htmlFor="employee" 
+              className="block text-gray-700 text-sm font-bold mb-2"
+            >
+              Select Employee
+            </label>
+            {(() => {
+              console.log('=== EMPLOYEE DROPDOWN DEBUG ===');
+              console.log('Current employees state:', employees);
+              console.log('Current task.employee value:', task.employee);
+              console.log('Number of employees:', employees.length);
+              
+              if (employees.length === 0) {
+                console.log('Warning: No employees available in the dropdown');
+              }
+
+              return (
+                <select
+                  id="employee"
+                  name="employee"
+                  value={task.employee}
+                  onChange={handleChange}
+                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                  required
+                >
+                  <option value="">Select an employee</option>
+                  {employees.map((employee, index) => {
+                    console.log(`Rendering employee option ${index}:`, employee);
+                    return (
+                      <option 
+                        key={`employee-${employee.id || index}`} 
+                        value={employee.name}
+                      >
+                        {employee.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              );
+            })()}
+          </div>
+
+          {/* Department Display */}
+          <div className="mb-4">
+            <label 
+              htmlFor="department" 
+              className="block text-gray-700 text-sm font-bold mb-2"
+            >
+              Department
+            </label>
+            <input
+              type="text"
+              id="department"
+              name="department"
+              value={
+                employees.find(emp => emp.name === task.employee)?.department || ''
+              }
+              readOnly
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            />
+          </div>
+
+          {/* Mail Display */}
+          <div className="mb-4">
+            <label 
+              htmlFor="mail" 
+              className="block text-gray-700 text-sm font-bold mb-2"
+            >
+              Mail
+            </label>
+            <input
+              type="email"
+              id="mail"
+              name="mail"
+              value={
+                parsedEmployeeDepartment.find(emp => emp.employee === task.employee)?.email || 
+                employees.find(emp => emp.name === task.employee)?.email || 
+                ''
+              }
+              readOnly
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            />
+          </div>
+
+          {/* Date Input */}
+          <div className="mb-4">
+            <label 
+              htmlFor="date" 
+              className="block text-gray-700 text-sm font-bold mb-2"
+            >
+              Date
+            </label>
+            <input
+              type="date"
+              id="date"
+              name="date"
+              value={task.date}
+              onChange={handleChange}
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              required
+            />
+          </div>
+
+          {/* Comments Input */}
+          <div className="mb-4">
+            <label 
+              htmlFor="comments" 
+              className="block text-gray-700 text-sm font-bold mb-2"
+            >
+              Comments
+            </label>
+            <textarea
+              id="comments"
+              name="comments"
+              value={task.comments}
+              onChange={handleChange}
+              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              placeholder="Enter any additional comments"
+              rows="4"
+            />
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex items-center justify-center">
+            <button
+              type="submit"
+              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            >
+              Create Task
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
