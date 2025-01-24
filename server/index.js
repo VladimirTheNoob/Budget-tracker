@@ -1,61 +1,15 @@
+require('dotenv').config();
 const express = require('express');
-const dotenv = require('dotenv');
 const cors = require('cors');
+const session = require('express-session');
+const passport = require('passport');
 const fs = require('fs');
 const path = require('path');
-
-// Load environment variables
-dotenv.config();
+const { oauth2Client } = require('./utils/googleAuth');
+const { google } = require('googleapis');
 
 const app = express();
-
-// Permissive CORS configuration for development
-app.use(cors());
-
-// Middleware for parsing JSON and logging requests
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Debug middleware to log route registration
-function logRoutes(app) {
-  console.log('=== REGISTERED ROUTES ===');
-  app._router.stack.forEach(function(r){
-    if (r.route && r.route.path){
-      console.log(
-        Object.keys(r.route.methods)
-          .map(method => `${method.toUpperCase()} ${r.route.path}`)
-          .join(', ')
-      );
-    }
-  });
-  console.log('=== END REGISTERED ROUTES ===');
-}
-
-// Detailed logging middleware
-app.use((req, res, next) => {
-  console.log('-------------------------------------------');
-  console.log(`Incoming Request: ${req.method} ${req.path}`);
-  console.log('Full Request Details:', {
-    method: req.method,
-    path: req.path,
-    url: req.url,
-    baseUrl: req.baseUrl,
-    originalUrl: req.originalUrl,
-    headers: req.headers,
-    body: req.body
-  });
-  console.log('-------------------------------------------');
-  next();
-});
-
-// Explicit route logging middleware
-app.use((req, res, next) => {
-  console.log(`Received request to: ${req.method} ${req.path}`);
-  next();
-});
-
-// Debugging route registration
-console.log('Registering routes...');
+const port = process.env.PORT || 5000;
 
 // Create storage directory if it doesn't exist
 const storageDir = path.join(__dirname, 'storage');
@@ -103,98 +57,114 @@ const writeJsonFile = (filePath, data) => {
 
 // Load initial data from JSON files
 let tasks = readJsonFile(tasksFile);
-console.log('Loaded tasks from file:', tasks);
 let employees = readJsonFile(employeesFile);
-
-// Declare employeeDepartments array at the top level
 let employeeDepartments = [];
 
-// Bulk tasks route with extensive logging and explicit path
-app.post('/api/bulk-tasks', (req, res) => {
-  console.log('=== BULK TASKS ROUTE HANDLER CALLED ===');
-  console.log('Received Bulk Tasks Request:', {
-    method: req.method,
-    path: req.path,
-    url: req.url,
-    baseUrl: req.baseUrl,
-    originalUrl: req.originalUrl,
-    headers: req.headers,
-    body: req.body
-  });
+// Middleware
+app.use(cors({
+  origin: process.env.CLIENT_URL,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Session configuration
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+// Initialize Passport and restore authentication state from session
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Configure Passport
+require('./utils/googleAuth').configurePassport();
+
+// Debug middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    authenticated: req.isAuthenticated(),
+    user: req.user,
+    session: req.session
+  });
+  next();
+});
+
+// Task Management Routes
+app.get('/api/tasks', (req, res) => {
+  try {
+    console.log('Sending tasks:', tasks);
+    res.status(200).json(tasks);
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+app.post('/api/tasks', (req, res) => {
+  try {
+    const task = req.body;
+    console.log('Received individual task:', task);
+    tasks.push(task);
+    writeJsonFile(tasksFile, tasks);
+    res.status(201).json({ message: 'Task created successfully', task });
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ error: 'Failed to create task' });
+  }
+});
+
+app.post('/api/bulk-tasks', (req, res) => {
   try {
     const { tasks: newTasks } = req.body;
-    
     if (!newTasks || !Array.isArray(newTasks)) {
-      console.error('Invalid tasks data:', req.body);
-      return res.status(400).json({ 
-        error: 'Invalid tasks data. Expected an array of tasks.',
-        receivedBody: req.body
-      });
+      return res.status(400).json({ error: 'Invalid tasks data' });
     }
-
-    console.log('Parsed tasks:', newTasks);
-    
-    // Store tasks (replace with database operation)
     tasks = [...tasks, ...newTasks];
     writeJsonFile(tasksFile, tasks);
-    
-    console.log('Updated tasks array:', tasks);
-
     res.status(201).json({ 
-      message: 'Bulk tasks created successfully', 
+      message: 'Bulk tasks created successfully',
       tasksCount: newTasks.length,
       tasks: newTasks
     });
   } catch (error) {
-    console.error('Error in /api/bulk-tasks handler:', error);
-    res.status(500).json({ 
-      error: 'Failed to create bulk tasks', 
-      details: error.message,
-      stack: error.stack 
-    });
+    console.error('Error in bulk tasks:', error);
+    res.status(500).json({ error: 'Failed to create bulk tasks' });
   }
 });
 
-// Employee-departments route
+// Employee Management Routes
+app.get('/api/employees', (req, res) => {
+  try {
+    const currentEmployees = readJsonFile(employeesFile);
+    res.status(200).json(currentEmployees);
+  } catch (error) {
+    console.error('Error fetching employees:', error);
+    res.status(500).json({ error: 'Failed to fetch employees' });
+  }
+});
+
 app.post('/api/employee-departments', (req, res) => {
   try {
-    console.log('=== EMPLOYEE-DEPARTMENTS ROUTE HANDLER CALLED ===');
-    console.log('Received Request Body:', req.body);
-
     const { employeeDepartments: newPairs } = req.body;
-    
-    // Validate input
     if (!newPairs || !Array.isArray(newPairs)) {
-      console.error('Invalid employee-department pairs:', req.body);
-      return res.status(400).json({ 
-        error: 'Invalid employee-department pairs. Expected an array.',
-        receivedBody: req.body
-      });
+      return res.status(400).json({ error: 'Invalid employee-department pairs' });
     }
 
-    console.log('Processing pairs:', newPairs);
+    const validPairs = newPairs.filter(pair => 
+      pair && pair.employee && pair.department && pair.email
+    );
 
-    // Validate each pair and create new employees
-    const validPairs = newPairs.filter(pair => {
-      const isValid = pair && pair.employee && pair.department && pair.email;
-      if (!isValid) {
-        console.log('Invalid pair:', pair);
-      }
-      return isValid;
-    });
-
-    if (validPairs.length === 0) {
-      console.error('No valid pairs found in:', newPairs);
-      return res.status(400).json({
-        error: 'No valid employee-department pairs found',
-        receivedPairs: newPairs
-      });
-    }
-
-    console.log('Valid pairs:', validPairs);
-    
-    // Create new employees array
     const updatedEmployees = validPairs.map((pair, index) => ({
       id: `emp-${Date.now()}-${index}`,
       name: pair.employee.trim(),
@@ -203,202 +173,171 @@ app.post('/api/employee-departments', (req, res) => {
       position: 'Employee'
     }));
 
-    console.log('Created employees:', updatedEmployees);
-    
-    // Save to file
     writeJsonFile(employeesFile, updatedEmployees);
-    
-    // Update in-memory arrays
     employees = updatedEmployees;
     employeeDepartments = validPairs;
-    
-    console.log('Final employees array:', employees);
-    
+
     res.status(201).json({ 
-      message: 'Employee-department pairs created successfully', 
-      pairsCount: validPairs.length,
-      pairs: validPairs,
-      currentEmployees: employees,
-      totalEmployees: employees.length
+      message: 'Employee-department pairs created successfully',
+      employees: updatedEmployees
     });
   } catch (error) {
-    console.error('Error in /api/employee-departments handler:', error);
+    console.error('Error creating employee-department pairs:', error);
+    res.status(500).json({ error: 'Failed to create employee-department pairs' });
+  }
+});
+
+// Delete all data
+app.delete('/api/tasks/all', (req, res) => {
+  try {
+    tasks = [];
+    employees = [];
+    employeeDepartments = [];
+    writeJsonFile(tasksFile, []);
+    writeJsonFile(employeesFile, []);
+    res.status(200).json({ message: 'All data deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting data:', error);
+    res.status(500).json({ error: 'Failed to delete data' });
+  }
+});
+
+// Authentication Routes
+app.get('/auth/google',
+  passport.authenticate('google', { 
+    scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send'],
+    accessType: 'offline',
+    prompt: 'consent'
+  })
+);
+
+app.get('/auth/google/callback',
+  passport.authenticate('google', { 
+    failureRedirect: `${process.env.CLIENT_URL}/login`,
+    failureMessage: true
+  }),
+  (req, res) => {
+    res.redirect(process.env.CLIENT_URL);
+  }
+);
+
+app.get('/auth/status', (req, res) => {
+  res.json({
+    authenticated: req.isAuthenticated(),
+    user: req.user,
+    session: req.session
+  });
+});
+
+// Notification Route
+app.post('/api/notifications/send', async (req, res) => {
+  try {
+    console.log('=== SEND NOTIFICATIONS ROUTE HANDLER CALLED ===');
+    const { notifications } = req.body;
+    
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    if (!notifications || !Array.isArray(notifications)) {
+      console.error('Invalid notifications data:', req.body);
+      return res.status(400).json({ 
+        error: 'Invalid notifications data. Expected an array of notifications.',
+        receivedBody: req.body
+      });
+    }
+
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const results = [];
+
+    for (const notification of notifications) {
+      try {
+        const emailContent = `From: ${req.user.email}
+To: ${notification.email}
+Subject: Task Update: ${notification.taskName}
+Content-Type: text/plain; charset=utf-8
+MIME-Version: 1.0
+
+${notification.message}
+
+Task Details:
+- Task: ${notification.taskName}
+- Employee: ${notification.employeeName}`;
+
+        const encodedEmail = Buffer.from(emailContent)
+          .toString('base64')
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+
+        await gmail.users.messages.send({
+          userId: 'me',
+          requestBody: {
+            raw: encodedEmail
+          }
+        });
+
+        results.push({
+          success: true,
+          email: notification.email,
+          message: 'Notification sent successfully'
+        });
+      } catch (error) {
+        console.error(`Failed to send notification to ${notification.email}:`, error);
+        results.push({
+          success: false,
+          email: notification.email,
+          error: error.message
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failureCount = results.filter(r => !r.success).length;
+
+    res.status(200).json({
+      message: `Notifications processed: ${successCount} successful, ${failureCount} failed`,
+      results
+    });
+  } catch (error) {
+    console.error('Error in notifications endpoint:', error);
     res.status(500).json({ 
-      error: 'Failed to create employee-department pairs', 
+      error: 'Internal server error while processing notifications',
       details: error.message
     });
   }
 });
 
-// Individual task route
-app.post('/api/tasks', (req, res) => {
-  try {
-    const task = req.body;
-    console.log('Received individual task:', task);
-    
-    // Store task (replace with database operation)
-    tasks.push(task);
-    writeJsonFile(tasksFile, tasks);
-    
-    res.status(201).json({ 
-      message: 'Task created successfully', 
-      task 
-    });
-  } catch (error) {
-    console.error('Error creating task:', error);
-    res.status(500).json({ error: 'Failed to create task' });
-  }
-});
-
-// Delete all data endpoint
-app.delete('/api/tasks/all', (req, res) => {
-  try {
-    console.log('=== DELETE ALL DATA ROUTE HANDLER CALLED ===');
-    
-    // Clear the arrays
-    tasks = [];
-    employees = [];
-    employeeDepartments = [];
-    
-    // Write empty arrays to files
-    writeJsonFile(tasksFile, []);
-    writeJsonFile(employeesFile, []);
-    
-    console.log('All data has been cleared');
-    
-    res.status(200).json({ 
-      message: 'All data has been successfully deleted',
-      tasksCount: 0,
-      employeesCount: 0
-    });
-  } catch (error) {
-    console.error('Error deleting all data:', error);
-    res.status(500).json({ 
-      error: 'Failed to delete all data', 
-      details: error.message 
-    });
-  }
-});
-
-// Enhanced routes for tasks
-app.get('/api/tasks', (req, res) => {
-  try {
-    console.group('📤 Sending Tasks');
-    
-    // Ensure each task has required fields and a unique ID
-    const processedTasks = tasks.map((task, index) => {
-      const processedTask = {
-        id: task.id || task._id || `task-${index}-${Date.now()}`,
-        name: task.name || `Task ${index + 1}`,
-        description: task.description || 'No description',
-        // Preserve any other existing fields
-        ...task
-      };
-
-      console.log('Processed task:', processedTask);
-      return processedTask;
-    });
-
-    console.log('Sending tasks:', processedTasks);
-    console.groupEnd();
-    
-    res.status(200).json(processedTasks);
-  } catch (error) {
-    console.error('Error processing tasks:', error);
-    res.status(500).json({ 
-      error: 'Failed to retrieve tasks',
-      details: error.message 
-    });
-  }
-});
-
-// Get all employee-department pairs
-app.get('/api/employee-departments', (req, res) => {
-  res.json(employeeDepartments);
-});
-
-// Get all employees
-app.get('/api/employees', (req, res) => {
-  try {
-    console.log('=== GET EMPLOYEES ROUTE HANDLER CALLED ===');
-    // Read the latest data from file
-    const currentEmployees = readJsonFile(employeesFile);
-    console.log('Sending employees:', currentEmployees);
-    res.status(200).json(currentEmployees);
-  } catch (error) {
-    console.error('Error fetching employees:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch employees',
-      details: error.message 
-    });
-  }
-});
-
-// Detailed CORS configuration
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
-
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Global Error Handler:', err);
-  res.status(500).json({ 
-    error: 'An unexpected error occurred',
-    message: err.message,
-    stack: err.stack 
+  console.error('Error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message
   });
 });
 
-// 404 handler - moved to the end of route definitions
-app.use((req, res, next) => {
-  console.error(`404 - Route Not Found: ${req.method} ${req.path}`);
-  console.log('All Registered Routes:', app._router.stack
-    .filter(r => r.route)
-    .map(r => Object.keys(r.route.methods).map(method => `${method.toUpperCase()} ${r.route.path}`))
-    .flat()
-  );
+// Error handling for undefined routes
+app.use((req, res) => {
+  const availableRoutes = [
+    '/api/tasks',
+    '/api/bulk-tasks',
+    '/api/employees',
+    '/api/employee-departments',
+    '/api/tasks/all',
+    '/auth/google',
+    '/auth/google/callback',
+    '/auth/status',
+    '/api/notifications/send'
+  ];
+  
   res.status(404).json({
-    error: 'Route Not Found',
-    requestedPath: req.path,
-    availableRoutes: [
-      '/api/bulk-tasks',
-      '/api/employee-departments',
-      '/api/tasks'
-    ]
+    error: 'Route not found',
+    message: `The requested route ${req.path} does not exist`,
+    availableRoutes
   });
 });
 
-console.log('Routes registered. Preparing to start server...');
-
-const PORT = process.env.PORT || 5000;
-
-// Start server
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Listening on all network interfaces`);
-  
-  // Log all registered routes on startup
-  logRoutes(app);
-  
-  // Additional diagnostic logging
-  console.log('=== SERVER DIAGNOSTIC INFO ===');
-  console.log('Registered Routes:', 
-    app._router.stack
-      .filter(r => r.route)
-      .map(r => Object.keys(r.route.methods).map(method => `${method.toUpperCase()} ${r.route.path}`))
-      .flat()
-  );
-  console.log('=== END SERVER DIAGNOSTIC INFO ===');
-});
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('Shutting down server...');
-  server.close(() => {
-    console.log('Server stopped.');
-    process.exit(0);
-  });
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 }); 

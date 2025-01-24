@@ -202,6 +202,9 @@ const TaskInput = () => {
       // Show success message
       alert('Bulk data saved successfully!');
 
+      // Refresh the page
+      window.location.reload();
+
     } catch (error) {
       console.error('Comprehensive Error saving bulk data:', {
         message: error.message,
@@ -239,6 +242,9 @@ const TaskInput = () => {
           date: '',
           comments: ''
         });
+
+        // Refresh the page
+        window.location.reload();
       }
     } catch (error) {
       console.error('Error deleting data:', error);
@@ -250,20 +256,42 @@ const TaskInput = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // First save bulk data if any exists
-      await handleBulkDataSubmission();
-
-      // Then save the individual task
-      console.log('Sending individual task:', task);
-      const response = await axios.post('http://localhost:5000/api/tasks', task, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
-      console.log('Task created:', response.data);
+      // Find the selected task from the tasks array
+      const selectedTask = tasks.find(t => t.name === task.taskName);
       
-      // Reset form after successful submission
+      if (!selectedTask) {
+        throw new Error('Selected task not found');
+      }
+
+      // Update the task with new values while keeping the original id
+      const updatedTask = {
+        ...selectedTask,
+        employee: task.employee,
+        department: employees.find(emp => emp.name === task.employee)?.department || '',
+        mail: employees.find(emp => emp.name === task.employee)?.email || '',
+        date: task.date,
+        comments: task.comments
+      };
+
+      console.log('Updating task:', updatedTask);
+      
+      // Find the index of the task to update
+      const taskIndex = tasks.findIndex(t => t.name === task.taskName);
+      if (taskIndex === -1) {
+        throw new Error('Task not found in the list');
+      }
+
+      // Update the task in the tasks array
+      const updatedTasks = [...tasks];
+      updatedTasks[taskIndex] = updatedTask;
+
+      // Save the updated tasks array
+      await axios.post('http://localhost:5000/api/tasks/update', { tasks: updatedTasks });
+      
+      // Update local state
+      setTasks(updatedTasks);
+      
+      // Reset form after successful update
       setTask({
         taskName: '',
         employee: '',
@@ -271,28 +299,30 @@ const TaskInput = () => {
         date: '',
         comments: ''
       });
+
+      alert('Task updated successfully!');
     } catch (error) {
-      console.error('Error creating task:', {
+      console.error('Error updating task:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status
       });
-      alert(`Error creating task: ${error.response?.data?.message || error.message}`);
+      alert(`Error updating task: ${error.response?.data?.message || error.message}`);
     }
   };
 
   return (
-    <div className="container mx-auto p-4">
+    <div className="container mx-auto p-4 bg-[#f5f5f5]">
       {/* Bulk Inputs Section */}
-      <div className="max-w-7xl mx-auto mb-6 bg-white rounded-lg shadow-md p-4">
-        <h2 className="text-xl font-bold mb-4 text-center">Bulk Data Input</h2>
+      <div className="max-w-7xl mx-auto mb-6 bg-white rounded p-6">
+        <h2 className="text-xl font-semibold mb-6 text-center">Bulk Data Input</h2>
         
         <div className="flex space-x-6">
           {/* Bulk Tasks Input */}
           <div className="w-1/2">
             <label 
               htmlFor="bulkTasks" 
-              className="block text-gray-700 text-sm font-bold mb-2 text-center"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Bulk Tasks Input (one task per line)
             </label>
@@ -300,11 +330,11 @@ const TaskInput = () => {
               id="bulkTasks"
               value={bulkTasks}
               onChange={handleBulkTasksChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
               rows="4"
               placeholder="Enter multiple tasks, one per line"
             />
-            <p className="text-sm text-gray-600 mt-1 text-center">
+            <p className="text-sm text-gray-500 mt-1">
               {parsedTasks.length} tasks ready to be saved
             </p>
           </div>
@@ -313,7 +343,7 @@ const TaskInput = () => {
           <div className="w-1/2">
             <label 
               htmlFor="bulkEmployeeDepartment" 
-              className="block text-gray-700 text-sm font-bold mb-2 text-center"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Employee-Department-Mail Input (format: employee;department;email)
             </label>
@@ -321,22 +351,22 @@ const TaskInput = () => {
               id="bulkEmployeeDepartment"
               value={bulkEmployeeDepartment}
               onChange={handleBulkEmployeeDepartmentChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
               rows="4"
               placeholder="Enter employee, department and email, one per line (e.g., John Doe;Sales;john.doe@example.com)"
             />
-            <p className="text-sm text-gray-600 mt-1 text-center">
+            <p className="text-sm text-gray-500 mt-1">
               {parsedEmployeeDepartment.length} employee-department-mail entries ready to be saved
             </p>
           </div>
         </div>
 
         {/* Save and Delete Buttons */}
-        <div className="flex justify-center space-x-4 mt-4">
+        <div className="flex justify-center space-x-4 mt-6">
           <button
             type="button"
             onClick={handleBulkDataSubmission}
-            className="w-48 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:shadow-outline"
+            className="w-48 bg-black hover:bg-gray-800 text-white font-medium py-2 px-6 rounded"
             disabled={parsedTasks.length === 0 && parsedEmployeeDepartment.length === 0}
           >
             Save Bulk Data
@@ -345,7 +375,7 @@ const TaskInput = () => {
           <button
             type="button"
             onClick={handleDeleteAllData}
-            className="w-48 bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:shadow-outline"
+            className="w-48 bg-[#ff4d4f] hover:bg-[#ff7875] text-white font-medium py-2 px-6 rounded"
           >
             Delete All Items
           </button>
@@ -353,94 +383,70 @@ const TaskInput = () => {
       </div>
 
       {/* Individual Task Form */}
-      <div className="max-w-md mx-auto bg-white rounded-lg shadow-md p-4">
-        <h2 className="text-xl font-bold mb-4 text-center">Create Task</h2>
-        <form onSubmit={handleSubmit}>
+      <div className="max-w-2xl mx-auto bg-white rounded p-6">
+        <h2 className="text-xl font-semibold mb-6 text-center">Create Task</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
           {/* Task Selection Dropdown */}
-          <div className="mb-4">
+          <div>
             <label 
               htmlFor="taskName" 
-              className="block text-gray-700 text-sm font-bold mb-2"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Select Task
             </label>
-            {(() => {
-              console.log('Rendering Tasks Dropdown:', {
-                tasksCount: tasks.length,
-                tasksData: tasks
-              });
-              return (
-                <select
-                  id="taskName"
-                  name="taskName"
-                  value={task.taskName}
-                  onChange={handleTaskSelection}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  required
+            <select
+              id="taskName"
+              name="taskName"
+              value={task.taskName}
+              onChange={handleTaskSelection}
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
+              required
+            >
+              <option value="">Select a task</option>
+              {tasks.map((taskItem) => (
+                <option 
+                  key={`task-${taskItem.id}`} 
+                  value={taskItem.name}
                 >
-                  <option value="">Select a task</option>
-                  {tasks.map((taskItem) => (
-                    <option 
-                      key={`task-${taskItem.id}`} 
-                      value={taskItem.name}
-                    >
-                      {taskItem.name} - {taskItem.description}
-                    </option>
-                  ))}
-                </select>
-              );
-            })()}
+                  {taskItem.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Employee Dropdown */}
-          <div className="mb-4">
+          <div>
             <label 
               htmlFor="employee" 
-              className="block text-gray-700 text-sm font-bold mb-2"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Select Employee
             </label>
-            {(() => {
-              console.log('=== EMPLOYEE DROPDOWN DEBUG ===');
-              console.log('Current employees state:', employees);
-              console.log('Current task.employee value:', task.employee);
-              console.log('Number of employees:', employees.length);
-              
-              if (employees.length === 0) {
-                console.log('Warning: No employees available in the dropdown');
-              }
-
-              return (
-                <select
-                  id="employee"
-                  name="employee"
-                  value={task.employee}
-                  onChange={handleChange}
-                  className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                  required
+            <select
+              id="employee"
+              name="employee"
+              value={task.employee}
+              onChange={handleChange}
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
+              required
+            >
+              <option value="">Select an employee</option>
+              {employees.map((employee) => (
+                <option 
+                  key={`employee-${employee.id}`} 
+                  value={employee.name}
                 >
-                  <option value="">Select an employee</option>
-                  {employees.map((employee, index) => {
-                    console.log(`Rendering employee option ${index}:`, employee);
-                    return (
-                      <option 
-                        key={`employee-${employee.id || index}`} 
-                        value={employee.name}
-                      >
-                        {employee.name}
-                      </option>
-                    );
-                  })}
-                </select>
-              );
-            })()}
+                  {employee.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Department Display */}
-          <div className="mb-4">
+          <div>
             <label 
               htmlFor="department" 
-              className="block text-gray-700 text-sm font-bold mb-2"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Department
             </label>
@@ -452,15 +458,15 @@ const TaskInput = () => {
                 employees.find(emp => emp.name === task.employee)?.department || ''
               }
               readOnly
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="w-full border border-gray-300 rounded p-2 bg-gray-50"
             />
           </div>
 
           {/* Mail Display */}
-          <div className="mb-4">
+          <div>
             <label 
               htmlFor="mail" 
-              className="block text-gray-700 text-sm font-bold mb-2"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Mail
             </label>
@@ -474,17 +480,17 @@ const TaskInput = () => {
                 ''
               }
               readOnly
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="w-full border border-gray-300 rounded p-2 bg-gray-50"
             />
           </div>
 
           {/* Date Input */}
-          <div className="mb-4">
+          <div>
             <label 
               htmlFor="date" 
-              className="block text-gray-700 text-sm font-bold mb-2"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
-              Date
+              Due Date
             </label>
             <input
               type="date"
@@ -492,16 +498,16 @@ const TaskInput = () => {
               name="date"
               value={task.date}
               onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
               required
             />
           </div>
 
           {/* Comments Input */}
-          <div className="mb-4">
+          <div>
             <label 
               htmlFor="comments" 
-              className="block text-gray-700 text-sm font-bold mb-2"
+              className="block text-gray-700 text-sm font-medium mb-2"
             >
               Comments
             </label>
@@ -510,19 +516,19 @@ const TaskInput = () => {
               name="comments"
               value={task.comments}
               onChange={handleChange}
-              className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
               placeholder="Enter any additional comments"
               rows="4"
             />
           </div>
 
           {/* Submit Button */}
-          <div className="flex items-center justify-center">
+          <div className="flex justify-center pt-4">
             <button
               type="submit"
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+              className="w-48 bg-black hover:bg-gray-800 text-white font-medium py-2 px-6 rounded"
             >
-              Create Task
+              Update Task
             </button>
           </div>
         </form>
