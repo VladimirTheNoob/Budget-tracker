@@ -23,7 +23,14 @@ const TaskList = () => {
         axios.get('http://localhost:5000/api/tasks'),
         axios.get('http://localhost:5000/api/employees')
       ]);
-      setTasks(tasksRes.data);
+      
+      // Ensure each task has a unique ID
+      const tasksWithIds = tasksRes.data.map((task, index) => ({
+        ...task,
+        id: task.id || `task-${Date.now()}-${index}`
+      }));
+      
+      setTasks(tasksWithIds);
       setEmployees(employeesRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -73,13 +80,15 @@ const TaskList = () => {
   const groupedTasks = groupTasks(filteredTasks);
 
   const handleCheckTask = (taskId) => {
-    const newChecked = new Set(checkedTasks);
-    if (newChecked.has(taskId)) {
-      newChecked.delete(taskId);
-    } else {
-      newChecked.add(taskId);
-    }
-    setCheckedTasks(newChecked);
+    setCheckedTasks(prev => {
+      const newChecked = new Set(prev);
+      if (newChecked.has(taskId)) {
+        newChecked.delete(taskId);
+      } else {
+        newChecked.add(taskId);
+      }
+      return newChecked;
+    });
   };
 
   const handleSendNotifications = async () => {
@@ -232,7 +241,7 @@ const TaskList = () => {
 
       {/* Tasks Table */}
       {Object.entries(groupedTasks).map(([group, tasks]) => (
-        <div key={group} className="max-w-7xl mx-auto mb-6 bg-white rounded p-6">
+        <div key={`group-${group}`} className="max-w-7xl mx-auto mb-6 bg-white rounded p-6">
           <div className="mb-4 border-b pb-4">
             <h3 className="text-lg font-semibold">{group}</h3>
           </div>
@@ -264,38 +273,44 @@ const TaskList = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {tasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={checkedTasks.has(task.id)}
-                        onChange={() => handleCheckTask(task.id)}
-                        className="h-4 w-4 text-black focus:ring-black border-gray-300 rounded"
-                      />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {task.name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {task.employee}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {task.department}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {task.date}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {task.endDate}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(task.status)}`}>
-                        {task.status || 'Pending'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {tasks.map((task, index) => {
+                  const taskId = task.id || `task-${Date.now()}-${index}`;
+                  return (
+                    <tr 
+                      key={taskId}
+                      className="hover:bg-gray-50"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          checked={checkedTasks.has(taskId)}
+                          onChange={() => handleCheckTask(taskId)}
+                          className="h-4 w-4 text-black focus:ring-black border-gray-300 rounded"
+                        />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {task.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {task.employee}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {task.department}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {task.date}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {task.endDate}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(task.status)}`}>
+                          {task.status || 'Pending'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

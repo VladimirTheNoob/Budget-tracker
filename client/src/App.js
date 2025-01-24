@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import axios from 'axios';
 import './App.css';
+import LoginButton from './components/LoginButton';
+import LogoutButton from './components/LogoutButton';
 
 // Import your components
 import TaskInput from './components/TaskInput';
@@ -10,6 +13,34 @@ import TaskList from './components/TaskList';
 
 function App() {
   const [activeTab, setActiveTab] = useState('list'); // 'list' or 'input'
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+
+  const checkAuthStatus = useCallback(async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/auth/status', { 
+        withCredentials: true 
+      });
+      setIsAuthenticated(response.data.authenticated);
+      setUser(response.data.user);
+    } catch (error) {
+      console.error('Error checking auth status:', error);
+      setIsAuthenticated(false);
+      setUser(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, [checkAuthStatus]);
+
+  const handleLogout = async () => {
+    return new Promise((resolve) => {
+      setIsAuthenticated(false);
+      setUser(null);
+      resolve();
+    });
+  };
 
   return (
     <BrowserRouter
@@ -46,6 +77,23 @@ function App() {
                     Task Input
                   </button>
                 </div>
+              </div>
+              <div className="flex items-center space-x-4">
+                {isAuthenticated && user ? (
+                  <>
+                    <div className="flex items-center">
+                      <img
+                        src={user.picture || 'https://via.placeholder.com/32'}
+                        alt="Profile"
+                        className="w-8 h-8 rounded-full mr-2"
+                      />
+                      <span className="text-sm text-gray-700">{user.name}</span>
+                    </div>
+                    <LogoutButton onLogout={handleLogout} />
+                  </>
+                ) : (
+                  <LoginButton />
+                )}
               </div>
             </div>
           </div>
