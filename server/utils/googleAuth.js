@@ -3,7 +3,11 @@ const { OAuth2Client } = require('google-auth-library');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 
 // Create OAuth2 client
-const oauth2Client = new OAuth2Client();
+const oauth2Client = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/auth/google/callback'
+);
 
 // Configure passport
 function configurePassport() {

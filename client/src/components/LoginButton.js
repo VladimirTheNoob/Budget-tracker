@@ -27,14 +27,19 @@ const LoginButton = () => {
   };
 
   if (isAuthenticated && user) {
+    // Safely render user name
+    const userName = user.displayName || 
+      (user.name && `${user.name.givenName} ${user.name.familyName}`.trim()) || 
+      'User';
+
     return (
       <div className="flex items-center">
         <img
-          src={user.picture || 'https://via.placeholder.com/32'}
+          src={user.photos?.[0]?.value || user.picture || 'https://via.placeholder.com/32'}
           alt="Profile"
           className="w-8 h-8 rounded-full mr-2"
         />
-        <span className="text-sm text-gray-700">{user.name}</span>
+        <span className="text-sm text-gray-700">{userName}</span>
       </div>
     );
   }

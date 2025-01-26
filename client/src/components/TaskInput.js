@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const TaskInput = () => {
+const TaskInput = (props) => {
   // State to manage form inputs
   const [task, setTask] = useState({
     taskName: '',
@@ -19,9 +19,9 @@ const TaskInput = () => {
   const [bulkEmployeeDepartment, setBulkEmployeeDepartment] = useState('');
   const [parsedEmployeeDepartment, setParsedEmployeeDepartment] = useState([]);
 
-  // State for fetched tasks and employees
-  const [tasks, setTasks] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  // Replace local state with props
+  const { tasks, employees, setTasks, setEmployees, onDataSaved } = props;
+  const uniqueEmployees = [...new Map(employees.map(emp => [emp.id, emp])).values()];
 
   // State for checked tasks
   const [checkedTasks, setCheckedTasks] = useState(new Set());
@@ -36,8 +36,9 @@ const TaskInput = () => {
       if (Array.isArray(tasksResponse.data)) {
         // Ensure all tasks have IDs
         const tasksWithIds = tasksResponse.data.map((task, index) => ({
-          id: task.id || `task-${Date.now()}-${index}`, // Generate ID if missing
-          ...task
+          ...task,
+          id: task.id || `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          taskName: task.name
         }));
         console.log(`Setting ${tasksWithIds.length} tasks`);
         setTasks(tasksWithIds);
@@ -88,12 +89,14 @@ const TaskInput = () => {
     const value = e.target.value;
     setBulkEmployeeDepartment(value);
     // Parse employee-department-email triplets (split by new line and delimiter)
-    const pairs = value.split('\n').filter(pair => pair.trim() !== '');
-    const employeeDepartment = pairs.map(pair => {
-      const [employee, department, email] = pair.split(';').map(item => item.trim());
-      return { employee, department, email };
-    });
-    setParsedEmployeeDepartment(employeeDepartment);
+    const pairs = value.split('\n')
+      .filter(pair => pair.trim() !== '')
+      .map(pair => {
+        const [employee, department, email] = pair.split(';').map(item => item.trim());
+        return { employee, department, email };
+      })
+      .filter(pair => pair.employee && pair.department && pair.email);
+    setParsedEmployeeDepartment(pairs);
   };
 
   // Handle task selection from parsed tasks
@@ -135,90 +138,115 @@ const TaskInput = () => {
   const handleBulkDataSubmission = async () => {
     try {
       console.log('=== BULK DATA SUBMISSION STARTED ===');
-
-      // Check for duplicates in parsedTasks
-      const taskDuplicates = parsedTasks.filter((task, index) => 
-        parsedTasks.indexOf(task) !== index
-      );
-
-      // Check for duplicates in the existing tasks
-      const existingTaskNames = tasks.map(task => task.name.toLowerCase());
-      const newTaskNames = parsedTasks.map(task => task.trim().toLowerCase());
-      const duplicateTasks = newTaskNames.filter(name => existingTaskNames.includes(name));
-
-      if (taskDuplicates.length > 0 || duplicateTasks.length > 0) {
-        let errorMessage = 'Duplicates found:\n';
-        if (taskDuplicates.length > 0) {
-          errorMessage += `Tasks in bulk input: ${taskDuplicates.join(', ')}\n`;
-        }
-        if (duplicateTasks.length > 0) {
-          errorMessage += `Tasks already exist: ${duplicateTasks.join(', ')}\n`;
-        }
-        alert(errorMessage);
-        return;
-      }
-
-      // Save tasks to database if there are any
-      if (parsedTasks.length > 0) {
-        console.log('Preparing bulk tasks data:', parsedTasks);
-        const tasksData = parsedTasks.map(taskName => taskName.trim());
-        
-        try {
-          const tasksResponse = await axios.post('http://localhost:5000/api/bulk-tasks', { 
-            tasks: tasksData 
-          });
-          console.log('Bulk tasks saved successfully:', tasksResponse.data);
-        } catch (error) {
-          if (error.response?.data?.duplicates) {
-            const duplicates = error.response.data.duplicates;
-            alert(`Cannot create duplicate tasks:\n${duplicates.join('\n')}`);
-            return;
-          }
-          throw error;
-        }
-      }
-
-      // Save employee-department pairs if there are any
+      
+      // Process employee-department updates first
       if (parsedEmployeeDepartment.length > 0) {
         try {
-          // Fetch existing employee-department pairs
-          const existingEmployeeDepartmentsResponse = await axios.get('http://localhost:5000/api/employee-departments');
-          const existingEmployeeDepartments = existingEmployeeDepartmentsResponse.data || [];
+          // Create valid pairs with proper scoping
+          const validPairs = parsedEmployeeDepartment.map(pair => ({
+            employee: pair.employee?.trim() || '',
+            department: pair.department?.trim() || '',
+            email: pair.email?.trim().toLowerCase()
+          })).filter(pair => pair.employee && pair.department && pair.email);
 
-          // Combine existing pairs with new pairs
-          const combinedEmployeeDepartments = [...existingEmployeeDepartments, ...parsedEmployeeDepartment];
+          console.log('Sending employee updates:', validPairs);
+          
+          // Send updates using PUT request
+          const employeeResponse = await axios.put(
+            'http://localhost:5000/api/employee-departments',
+            { updates: validPairs },
+            { headers: { 'Content-Type': 'application/json' } }
+          );
 
-          // Send combined data to the server
-          const employeeResponse = await axios.post('http://localhost:5000/api/employee-departments', {
-            employeeDepartments: combinedEmployeeDepartments
-          });
-          console.log('Employee-department pairs saved:', employeeResponse.data);
-        } catch (error) {
-          if (error.response?.data?.duplicates) {
-            const duplicates = error.response.data.duplicates;
-            alert(`Cannot create duplicate entries:\n${duplicates.join('\n')}`);
-            return;
+          if (employeeResponse.status === 200) {
+            console.log('Successfully updated employee-departments');
+            // Refresh employee data after update
+            await fetchData();
           }
-          throw error;
+
+        } catch (error) {
+          console.error('Update error:', error);
+          alert(error.response?.data?.error || 'Update failed');
+          return;
         }
       }
 
-      // Reset form fields
-      setBulkTasks('');
-      setBulkEmployeeDepartment('');
-      setParsedTasks([]);
-      setParsedEmployeeDepartment([]);
+      // Process task updates
+      if (parsedTasks.length > 0) {
+        try {
+          // Update the task processing logic
+          const parsedTasks = bulkTasks
+            .split('\n')
+            .map(line => line.trim().split(';')[0]) // Take only first segment
+            .filter(line => line !== '');
 
-      // Show success message
-      alert('All data has been successfully saved!');
+          // Validate task names are single words
+          parsedTasks.forEach(taskName => {
+            if (!/^[\p{L}\d_-]+$/u.test(taskName)) {
+              throw new Error(`Invalid task name: "${taskName}". Must be a single word without spaces/special chars`);
+            }
+          });
 
-      // Refresh the data
-      await fetchData();
+          // Check for client-side duplicates
+          const uniqueNames = new Set(parsedTasks);
+          if (uniqueNames.size !== parsedTasks.length) {
+            throw new Error('Duplicate task names in input');
+          }
+
+          const taskUpdates = parsedTasks.map(taskText => {
+            return {
+              name: taskText,
+              employee: '',
+              date: new Date().toISOString().split('T')[0],
+              comments: '',
+              status: 'pending',
+              department: '',
+              email: ''
+            };
+          });
+
+          console.log('Sending task updates:', taskUpdates);
+
+          const response = await axios.post(
+            'http://localhost:5000/api/tasks/bulk',
+            { tasks: taskUpdates },
+            {
+              withCredentials: true,
+              validateStatus: (status) => status === 200 || status === 201
+            }
+          );
+
+          if (response.status === 201) {
+            if (response.data.duplicates > 0) {
+              alert(`Successfully added ${response.data.addedCount} tasks. ${response.data.duplicates} duplicates skipped.`);
+            } else {
+              alert(`Successfully added ${response.data.addedCount} tasks`);
+            }
+          } else if (response.status === 200 && response.data.error === 'DUPLICATE_TASKS') {
+            alert(`All tasks already exist. Duplicates: ${response.data.duplicates}`);
+          }
+
+          // Reset form state
+          setBulkTasks('');
+          setBulkEmployeeDepartment('');
+          setParsedTasks([]);
+          setParsedEmployeeDepartment([]);
+          onDataSaved();
+
+        } catch (error) {
+          if (error.response?.data?.error === 'DUPLICATE_TASKS') {
+            alert(`All tasks already exist. Duplicates: ${error.response.data.duplicates}`);
+            console.log('Duplicate tasks handled:', error.response.data);
+          } else {
+            alert(error.response?.data?.message || 'Failed to submit bulk tasks');
+            console.log('Bulk task issue:', error.response?.data || error.message);
+          }
+        }
+      }
 
     } catch (error) {
-      console.error('Error in bulk data submission:', error);
-      const errorMessage = error.response?.data?.error || error.message;
-      alert(`Failed to save data: ${errorMessage}\nPlease try again.`);
+      console.error('Submission error:', error);
+      alert('Bulk submission failed');
     }
   };
 
@@ -254,64 +282,76 @@ const TaskInput = () => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
     try {
-      // Find the selected task from the tasks list
-      const selectedTask = tasks.find(t => t.name === task.taskName);
-
-      // Check for duplicates if this is a new task (case-insensitive)
-      if (!selectedTask) {
-        const isDuplicate = tasks.some(t => t.name.toLowerCase() === task.taskName.toLowerCase());
-        if (isDuplicate) {
-          alert('A task with this name already exists. Please choose a different name.');
-          return;
-        }
-      }
+      // Find if task already exists (use case-insensitive name matching)
+      const selectedTask = tasks.find(t => 
+        t.name.toLowerCase() === task.taskName.toLowerCase()
+      );
       
+      // Prepare task data
       const taskData = {
-        id: selectedTask?.id, // Use the ID of the existing task if found
         name: task.taskName,
         employee: task.employee,
-        department: employees.find(emp => emp.name === task.employee)?.department || '',
         date: task.date,
-        status: selectedTask?.status || 'pending',
         comments: task.comments,
-        email: employees.find(emp => emp.name === task.employee)?.email || ''
+        status: selectedTask?.status || 'pending',
+        department: task.department,
+        email: task.mail
       };
 
-      console.log('Submitting task:', taskData);
+      console.log('Submitting task data:', taskData);
+      console.log('Selected task:', selectedTask);
 
-      let response;
-      if (selectedTask?.id) {
+      if (selectedTask) {
+        console.log('Updating existing task:', selectedTask.id);
         // Update existing task
-        response = await axios.put(`http://localhost:5000/api/tasks/${selectedTask.id}`, taskData);
-        console.log('Task updated:', response.data);
+        const response = await axios.put(
+          `http://localhost:5000/api/tasks/${selectedTask.id}`,
+          {
+            ...taskData,
+            id: selectedTask.id  // Explicitly include the ID
+          },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        if (response.status === 200) {
+          console.log('Task updated successfully:', response.data);
+          alert('Task updated successfully!');
+        }
       } else {
         // Create new task
-        response = await axios.post('http://localhost:5000/api/tasks', taskData);
-        console.log('Task created:', response.data);
+        const response = await axios.post(
+          'http://localhost:5000/api/tasks',
+          taskData,
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        if (response.status === 201) {
+          console.log('Task created successfully:', response.data);
+          alert('Task created successfully!');
+        }
       }
-      
-      // Reset form after successful submission
+
+      // Reset form
       setTask({
         taskName: '',
         employee: '',
+        department: '',
         mail: '',
         date: '',
         comments: ''
       });
 
-      // Show success message
-      alert(selectedTask?.id ? 'Task updated successfully!' : 'Task created successfully!');
+      // Refresh data
+      await fetchData();
+      
+      // Notify parent component
+      onDataSaved();
 
-      // Refresh tasks list
-      const tasksResponse = await axios.get('http://localhost:5000/api/tasks');
-      if (Array.isArray(tasksResponse.data)) {
-        setTasks(tasksResponse.data);
-      }
     } catch (error) {
       console.error('Error saving task:', error);
-      const errorMessage = error.response?.data?.error || error.message;
-      alert(`Error ${task.id ? 'updating' : 'creating'} task: ${errorMessage}\nPlease try again.`);
+      alert(`Failed to save task: ${error.response?.data?.error || error.message}`);
     }
   };
 
@@ -445,7 +485,7 @@ const TaskInput = () => {
               required
             >
               <option value="">Select an employee</option>
-              {employees.map((employee) => (
+              {uniqueEmployees.map((employee) => (
                 <option 
                   key={`employee-${employee.id}`}
                   value={employee.name}

@@ -15,6 +15,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('list'); // 'list' or 'input'
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [tasks, setTasks] = useState([]);
+  const [employees, setEmployees] = useState([]);
 
   const checkAuthStatus = useCallback(async () => {
     try {
@@ -41,6 +44,21 @@ function App() {
       resolve();
     });
   };
+
+  // Add useEffect to load initial data
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      const [tasksRes, employeesRes] = await Promise.all([
+        axios.get('http://localhost:5000/api/tasks'),
+        axios.get('http://localhost:5000/api/employees')
+      ]);
+      
+      setTasks(tasksRes.data);
+      setEmployees(employeesRes.data);
+    };
+    
+    fetchInitialData();
+  }, []); // Empty dependency array = runs once on mount
 
   return (
     <BrowserRouter
@@ -83,11 +101,13 @@ function App() {
                   <>
                     <div className="flex items-center">
                       <img
-                        src={user.picture || 'https://via.placeholder.com/32'}
+                        src={user.photos?.[0]?.value || 'https://via.placeholder.com/32x32'}
                         alt="Profile"
                         className="w-8 h-8 rounded-full mr-2"
                       />
-                      <span className="text-sm text-gray-700">{user.name}</span>
+                      <span className="text-sm text-gray-700">
+                        {user.displayName || `${user.name?.givenName} ${user.name?.familyName}`}
+                      </span>
                     </div>
                     <LogoutButton onLogout={handleLogout} />
                   </>
@@ -101,7 +121,21 @@ function App() {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          {activeTab === 'list' ? <TaskList /> : <TaskInput />}
+          {activeTab === 'list' ? (
+            <TaskList 
+              refreshTrigger={refreshTrigger}
+              tasks={tasks}
+              employees={employees}
+            />
+          ) : (
+            <TaskInput 
+              onDataSaved={() => setRefreshTrigger(prev => prev + 1)}
+              tasks={tasks}
+              employees={employees}
+              setTasks={setTasks}
+              setEmployees={setEmployees}
+            />
+          )}
         </main>
       </div>
     </BrowserRouter>

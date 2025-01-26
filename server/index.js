@@ -7,8 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const { oauth2Client } = require('./utils/googleAuth');
 const { google } = require('googleapis');
+const crypto = require('crypto');
 
-const app = express();
+const app = express();  
 const port = process.env.PORT || 5000;
 
 // Create storage directory if it doesn't exist
@@ -44,10 +45,14 @@ if (!fs.existsSync(employeeDepartmentsFile)) {
 // Helper function to read data from a JSON file
 const readJsonFile = (filePath) => {
   try {
-    const data = fs.readFileSync(filePath, 'utf8');
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, '[]');
+      return [];
+    }
+    const data = fs.readFileSync(filePath);
     return JSON.parse(data);
   } catch (error) {
-    console.error(`Error reading file ${filePath}:`, error);
+    console.error(`Error reading ${filePath}:`, error);
     return [];
   }
 };
@@ -112,44 +117,69 @@ app.use((req, res, next) => {
 // Task Management Routes
 app.get('/api/tasks', (req, res) => {
   try {
-    console.log('Sending tasks:', tasks);
-    res.status(200).json(tasks);
+    const tasks = readJsonFile(tasksFile);
+    // Ensure at least empty array is returned
+    res.status(200).json(Array.isArray(tasks) ? tasks : []);
   } catch (error) {
     console.error('Error fetching tasks:', error);
-    res.status(500).json({ error: 'Failed to fetch tasks' });
+    res.status(500).json({ error: 'Failed to fetch tasks', details: error.message });
   }
 });
 
 // PUT endpoint for updating tasks
 app.put('/api/tasks/:taskId', (req, res) => {
   try {
-    const { taskId } = req.params;
-    const taskData = req.body;
-    console.log('PUT /api/tasks/:taskId called with:', { taskId, taskData });
-
-    const taskIndex = tasks.findIndex(t => t.id === taskId);
+    console.log('=== PUT /api/tasks/:taskId called ===');
+    console.log('Task ID:', req.params.taskId);
+    console.log('Update data:', req.body);
+    
+    // Read current tasks
+    const tasks = readJsonFile(tasksFile);
+    console.log('Current tasks count:', tasks.length);
+    
+    // Find task index (case-insensitive)
+    const taskIndex = tasks.findIndex(t => 
+      t.id === req.params.taskId || 
+      t.name.toLowerCase() === req.body.name.toLowerCase()
+    );
+    console.log('Task index:', taskIndex);
+    
     if (taskIndex === -1) {
-      console.log('Task not found:', taskId);
-      return res.status(404).json({ error: 'Task not found' });
+      console.log('Task not found with ID or name:', req.params.taskId, req.body.name);
+      return res.status(404).json({ 
+        error: 'Task not found', 
+        details: {
+          searchId: req.params.taskId,
+          searchName: req.body.name
+        }
+      });
     }
 
-    // Update existing task while preserving any existing fields not included in the update
-    tasks[taskIndex] = {
+    // Update task while preserving the ID and adding updatedAt timestamp
+    const updatedTask = {
       ...tasks[taskIndex],
-      ...taskData,
-      id: taskId, // Ensure ID doesn't change
+      ...req.body,
+      id: tasks[taskIndex].id, // Preserve original ID
       updatedAt: new Date().toISOString()
     };
-
+    
+    // Update tasks array
+    tasks[taskIndex] = updatedTask;
+    
+    // Save to file
     writeJsonFile(tasksFile, tasks);
-    console.log('Task updated:', tasks[taskIndex]);
+    
+    console.log('Task updated successfully:', updatedTask);
     res.status(200).json({ 
       message: 'Task updated successfully',
-      task: tasks[taskIndex]
+      task: updatedTask
     });
   } catch (error) {
     console.error('Error updating task:', error);
-    res.status(500).json({ error: 'Failed to update task' });
+    res.status(500).json({ 
+      error: 'Failed to update task',
+      details: error.message
+    });
   }
 });
 
@@ -214,50 +244,19 @@ app.post('/api/bulk-tasks', (req, res) => {
       return res.status(400).json({ error: 'Invalid tasks data' });
     }
 
-    // Extract task names if they're objects, otherwise use as is
-    const taskNames = newTasks.map(task => 
-      typeof task === 'object' ? task.name : task
-    );
-
-    // Check for duplicates within new tasks first
-    const newTasksSet = new Set();
-    const duplicatesInNew = [];
-    taskNames.forEach(taskName => {
-      if (newTasksSet.has(taskName.toLowerCase())) {
-        duplicatesInNew.push(taskName);
-      }
-      newTasksSet.add(taskName.toLowerCase());
+    // Ensure server preserves existing IDs during updates
+    const tasksWithIds = newTasks.map(task => {
+      // Keep existing ID if present
+      const taskId = task.id || `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      return {
+        ...task,
+        id: taskId,
+        createdAt: task.createdAt || new Date().toISOString(),
+        status: task.status || 'pending'
+      };
     });
 
-    if (duplicatesInNew.length > 0) {
-      return res.status(400).json({
-        error: 'Duplicate tasks found in new data',
-        duplicates: duplicatesInNew
-      });
-    }
-
-    // Check for duplicates with existing tasks
-    const existingTaskNames = new Set(tasks.map(t => t.name.toLowerCase()));
-    const duplicatesWithExisting = taskNames.filter(taskName => 
-      existingTaskNames.has(taskName.toLowerCase())
-    );
-
-    if (duplicatesWithExisting.length > 0) {
-      return res.status(400).json({
-        error: 'Tasks already exist',
-        duplicates: duplicatesWithExisting
-      });
-    }
-
-    // Add IDs and timestamps to new tasks
-    const tasksWithIds = taskNames.map(taskName => ({
-      name: taskName,
-      id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString(),
-      status: 'pending'
-    }));
-
-    // Update tasks
+    // Update tasks array
     tasks = [...tasks, ...tasksWithIds];
     writeJsonFile(tasksFile, tasks);
     
@@ -273,45 +272,18 @@ app.post('/api/bulk-tasks', (req, res) => {
   }
 });
 
-// Add task update endpoint
-app.post('/api/tasks/update', (req, res) => {
-  try {
-    const updatedTask = req.body;
-    console.log('Updating task:', updatedTask);
-
-    if (!updatedTask.id) {
-      return res.status(400).json({ error: 'Task ID is required for update' });
-    }
-
-    const taskIndex = tasks.findIndex(task => task.id === updatedTask.id);
-    if (taskIndex === -1) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    // Update the task while preserving any existing fields not included in the update
-    tasks[taskIndex] = {
-      ...tasks[taskIndex],
-      ...updatedTask,
-      updatedAt: new Date().toISOString()
-    };
-
-    writeJsonFile(tasksFile, tasks);
-    console.log('Task updated successfully:', tasks[taskIndex]);
-    res.status(200).json({ 
-      message: 'Task updated successfully', 
-      task: tasks[taskIndex] 
-    });
-  } catch (error) {
-    console.error('Error updating task:', error);
-    res.status(500).json({ error: 'Failed to update task' });
-  }
-});
-
 // Employee Management Routes
 app.get('/api/employees', (req, res) => {
   try {
-    const currentEmployees = readJsonFile(employeesFile);
-    res.status(200).json(currentEmployees);
+    const employees = readJsonFile(employeesFile);
+    // Filter out duplicates before sending
+    const uniqueEmployees = employees.filter((emp, index, self) =>
+      index === self.findIndex(e => 
+        e.id === emp.id && 
+        e.email.toLowerCase() === emp.email.toLowerCase()
+      )
+    );
+    res.status(200).json(uniqueEmployees);
   } catch (error) {
     console.error('Error fetching employees:', error);
     res.status(500).json({ error: 'Failed to fetch employees' });
@@ -331,54 +303,70 @@ app.get('/api/employee-departments', (req, res) => {
   }
 });
 
-app.post('/api/employee-departments', (req, res) => {
-  console.log('=== POST /api/employee-departments called ===');
+app.put('/api/employee-departments', (req, res) => {
+  console.log('PUT /api/employee-departments received request');
   try {
-    const { employeeDepartments: newPairs } = req.body;
-    console.log('Received new pairs:', newPairs);
+    const { updates } = req.body;
+    const employeeDepartments = readJsonFile(employeeDepartmentsFile);
+    const employees = readJsonFile(employeesFile);
 
-    if (!newPairs || !Array.isArray(newPairs)) {
-      console.log('Invalid input: not an array');
-      return res.status(400).json({ error: 'Invalid employee-department pairs' });
+    // Validate updates
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ error: 'Invalid updates format' });
     }
 
-    // Log current state
-    console.log('Current employees:', employees);
-    console.log('Current employee-departments:', employeeDepartments);
+    updates.forEach(update => {
+      // Find by ID first, then fallback to email
+      const depIndex = employeeDepartments.findIndex(e =>
+        e.id === update.id || e.email.toLowerCase() === update.email.toLowerCase()
+      );
 
-    // Filter valid pairs
-    const validPairs = newPairs.filter(pair => 
-      pair && pair.employee && pair.department && pair.email
-    );
-    console.log('Valid pairs:', validPairs);
+      // Update or create entry
+      if (depIndex > -1) {
+        employeeDepartments[depIndex] = {
+          ...employeeDepartments[depIndex],
+          ...update,
+          id: employeeDepartments[depIndex].id // Preserve existing ID
+        };
+      } else {
+        employeeDepartments.push({
+          ...update,
+          id: `empd-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        });
+      }
 
-    // Create new employees without duplicate checking
-    const updatedEmployees = validPairs.map((pair, index) => ({
-      id: `emp-${Date.now()}-${index}`,
-      name: pair.employee.trim(),
-      department: pair.department.trim(),
-      email: pair.email.trim(),
-      position: 'Employee'
-    }));
-
-    // Update both employees and employee-departments files
-    writeJsonFile(employeesFile, [...employees, ...updatedEmployees]);
-    writeJsonFile(employeeDepartmentsFile, [...employeeDepartments, ...validPairs]);
-    
-    // Update in-memory data
-    employees = [...employees, ...updatedEmployees];
-    employeeDepartments = [...employeeDepartments, ...validPairs];
-
-    console.log('Successfully updated employee-departments');
-    console.log('New employees:', updatedEmployees);
-    
-    res.status(201).json({ 
-      message: 'Employee-department pairs created successfully',
-      employees: updatedEmployees
+      // Sync with employees list using ID
+      const empIndex = employees.findIndex(e => e.id === update.id);
+      if (empIndex > -1) {
+        employees[empIndex] = {
+          ...employees[empIndex],
+          name: update.employee, // Update name if changed
+          department: update.department,
+          email: update.email
+        };
+      } else {
+        // Create new employee if ID doesn't exist
+        employees.push({
+          id: `emp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: update.employee,
+          department: update.department,
+          email: update.email,
+          position: "Employee"
+        });
+      }
     });
+
+    writeJsonFile(employeeDepartmentsFile, employeeDepartments);
+    writeJsonFile(employeesFile, employees);
+    
+    res.json({ 
+      success: true,
+      updatedCount: updates.length
+    });
+
   } catch (error) {
-    console.error('Error creating employee-department pairs:', error);
-    res.status(500).json({ error: 'Failed to create employee-department pairs' });
+    console.error('Server update error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -494,8 +482,25 @@ app.post('/api/notifications/send', async (req, res) => {
       });
     }
 
+    // Ensure OAuth credentials are set
+    if (!oauth2Client.credentials.access_token) {
+      console.error('No access token available');
+      return res.status(401).json({ error: 'No valid OAuth credentials' });
+    }
+
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const results = [];
+
+    // Refresh token if needed
+    try {
+      await oauth2Client.refreshAccessToken();
+    } catch (refreshError) {
+      console.error('Token refresh error:', refreshError);
+      return res.status(401).json({ 
+        error: 'Failed to refresh access token', 
+        details: refreshError.message 
+      });
+    }
 
     for (const notification of notifications) {
       try {
@@ -516,6 +521,28 @@ Task Details:
           .replace(/\+/g, '-')
           .replace(/\//g, '_')
           .replace(/=+$/, '');
+
+        const mailOptions = {
+          from: process.env.EMAIL_USER,
+          to: notification.email,
+          subject: `Notification: ${notification.taskName}`,
+          text: notification.message,
+          headers: {
+            'Content-Type': 'text/plain; charset=UTF-8'
+          },
+          subjectEncoding: 'UTF-8'
+        };
+
+        const htmlMailOptions = {
+          from: process.env.EMAIL_USER,
+          to: notification.email,
+          subject: `Notification: ${notification.taskName}`,
+          html: `<p>${notification.message}</p>`,
+          headers: {
+            'Content-Type': 'text/html; charset=UTF-8'
+          },
+          subjectEncoding: 'UTF-8'
+        };
 
         await gmail.users.messages.send({
           userId: 'me',
@@ -551,6 +578,46 @@ Task Details:
     res.status(500).json({ 
       error: 'Internal server error while processing notifications',
       details: error.message
+    });
+  }
+});
+
+// Modify the bulk task endpoint to prevent duplicates
+app.post('/api/tasks/bulk', (req, res) => {
+  try {
+    const existingTasks = readJsonFile(tasksFile);
+    const existingNames = new Set(existingTasks.map(t => t.name.toLowerCase()));
+    
+    const newTasks = req.body.tasks.filter(task => 
+      !existingNames.has(task.name.toLowerCase())
+    );
+
+    if (newTasks.length === 0) {
+      return res.status(200).json({
+        error: 'DUPLICATE_TASKS',
+        message: `All ${req.body.tasks.length} tasks already exist`,
+        duplicates: req.body.tasks.length
+      });
+    }
+
+    const tasksWithIds = newTasks.map(task => ({
+      ...task,
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      createdAt: new Date().toISOString()
+    }));
+
+    writeJsonFile(tasksFile, [...existingTasks, ...tasksWithIds]);
+    
+    res.status(201).json({
+      message: `Added ${tasksWithIds.length} new tasks`,
+      addedCount: tasksWithIds.length,
+      duplicates: req.body.tasks.length - tasksWithIds.length
+    });
+  } catch (error) {
+    console.error('Bulk task error:', error);
+    res.status(500).json({ 
+      error: 'Server error',
+      details: error.message 
     });
   }
 });

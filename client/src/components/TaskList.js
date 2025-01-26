@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const TaskList = () => {
-  const [tasks, setTasks] = useState([]);
-  const [employees, setEmployees] = useState([]);
+const TaskList = ({ refreshTrigger, tasks, employees }) => {
   const [filters, setFilters] = useState({
     status: 'all',
     employee: 'all',
@@ -12,10 +10,27 @@ const TaskList = () => {
   const [groupBy, setGroupBy] = useState('none'); // none, employee, department
   const [checkedTasks, setCheckedTasks] = useState(new Set());
   const [notificationText, setNotificationText] = useState('');
+  const [uniqueTasks, setUniqueTasks] = useState([]);
+  const [bulkTaskInput, setBulkTaskInput] = useState('');
+
+  // Add deduplication for employees
+  const uniqueEmployees = [...new Map(employees.map(emp => 
+    [emp.id, emp]
+  )).values()];
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [refreshTrigger]);
+
+  useEffect(() => {
+    const seen = new Set();
+    const filtered = tasks.filter(task => {
+      const duplicate = seen.has(task.taskName);
+      seen.add(task.taskName);
+      return !duplicate;
+    });
+    setUniqueTasks(filtered);
+  }, [tasks]);
 
   const fetchData = async () => {
     try {
@@ -24,14 +39,12 @@ const TaskList = () => {
         axios.get('http://localhost:5000/api/employees')
       ]);
       
-      // Ensure each task has a unique ID
+      // Process data but don't set state - it comes from props
       const tasksWithIds = tasksRes.data.map((task, index) => ({
         ...task,
-        id: task.id || `task-${Date.now()}-${index}`
+        id: task.id || `task-${Date.now()}-${index}`,
+        taskName: task.name
       }));
-      
-      setTasks(tasksWithIds);
-      setEmployees(employeesRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
     }
@@ -103,6 +116,16 @@ const TaskList = () => {
     }
 
     try {
+      // Check authentication status first
+      const authResponse = await axios.get('http://localhost:5000/auth/status', { 
+        withCredentials: true 
+      });
+
+      if (!authResponse.data.authenticated) {
+        alert('Please log in to send notifications');
+        return;
+      }
+
       // Get selected tasks with their employee emails
       const selectedTasks = tasks.filter(task => checkedTasks.has(task.id));
       const notifications = selectedTasks.map(task => {
@@ -121,25 +144,113 @@ const TaskList = () => {
 
       console.log('Preparing to send notifications:', notifications);
 
-      // Send notifications to the backend
-      const response = await axios.post('http://localhost:5000/api/notifications/send', {
-        notifications
-      });
+      // Send notifications to the backend with credentials
+      const response = await axios.post(
+        'http://localhost:5000/api/notifications/send', 
+        { notifications },
+        { 
+          withCredentials: true,  // Include cookies for authentication
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
       console.log('Notifications sent:', response.data);
       
-      if (response.data.notificationCount > 0) {
-        alert(`Notifications sent successfully to ${response.data.notificationCount} recipients:\n\n${response.data.recipients.join('\n')}`);
+      // Check response structure and handle accordingly
+      const successCount = response.data.results?.filter(r => r.success).length || 0;
+      const failedCount = response.data.results?.filter(r => !r.success).length || 0;
+
+      if (successCount > 0) {
+        const successEmails = response.data.results
+          .filter(r => r.success)
+          .map(r => r.email);
+        
+        alert(`Notifications sent successfully:\n\n${successEmails.join('\n')}`);
+        
         // Clear selections and text
         setCheckedTasks(new Set());
         setNotificationText('');
       } else {
         alert('No notifications were sent. Please check your selection and try again.');
       }
+
+      // Log any failed notifications
+      if (failedCount > 0) {
+        const failedNotifications = response.data.results
+          .filter(r => !r.success)
+          .map(r => `${r.email}: ${r.error}`);
+        
+        console.warn('Failed notifications:', failedNotifications);
+      }
     } catch (error) {
       console.error('Error sending notifications:', error);
-      const errorMessage = error.response?.data?.error || error.message;
-      alert(`Failed to send notifications: ${errorMessage}\nPlease try again or contact support if the problem persists.`);
+      
+      // More detailed error handling
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        const errorMessage = error.response.data?.error || 
+                             error.response.data?.message || 
+                             'Unknown server error';
+        
+        alert(`Failed to send notifications: ${errorMessage}`);
+      } else if (error.request) {
+        // The request was made but no response was received
+        alert('No response received from the server. Please check your network connection.');
+      } else {
+        // Something happened in setting up the request
+        alert(`Error: ${error.message}`);
+      }
+    }
+  };
+
+  const handleBulkDataSubmission = async () => {
+    try {
+      // Validate and parse bulk tasks
+      const parsedTasks = bulkTaskInput
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line !== ''); // Remove empty lines
+
+      // Validate each task name
+      parsedTasks.forEach(taskName => {
+        // Check if task name is a single word (no spaces)
+        if (taskName.includes(' ')) {
+          throw new Error(`Invalid task name: "${taskName}". Task name must be a single word without spaces.`);
+        }
+      });
+
+      // Check for duplicate task names (case-sensitive)
+      const uniqueTaskNames = new Set(parsedTasks);
+      
+      if (uniqueTaskNames.size !== parsedTasks.length) {
+        throw new Error('Duplicate task names are not allowed');
+      }
+
+      // Prepare tasks data
+      const tasksData = parsedTasks.map(taskName => ({
+        name: taskName,
+        employee: '', // Empty by default
+        date: new Date().toISOString().split('T')[0], // Current date
+        comments: '',
+        status: 'pending'
+      }));
+
+      // Send to server
+      const response = await axios.post(
+        'http://localhost:5000/api/tasks/bulk', 
+        { tasks: tasksData },
+        { withCredentials: true }
+      );
+
+      // Success handling
+      alert(`Successfully added ${response.data.tasksCount} tasks`);
+      setBulkTaskInput(''); // Clear input
+    } catch (error) {
+      // Error handling
+      alert(error.message || 'Failed to submit bulk tasks');
+      console.error('Bulk task submission error:', error);
     }
   };
 
@@ -175,8 +286,13 @@ const TaskList = () => {
               className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
             >
               <option value="all">All Employees</option>
-              {employees.map(emp => (
-                <option key={emp.id} value={emp.name}>{emp.name}</option>
+              {uniqueEmployees.map((employee) => (
+                <option 
+                  key={`employee-${employee.id}`}
+                  value={employee.name}
+                >
+                  {employee.name}
+                </option>
               ))}
             </select>
           </div>
@@ -277,7 +393,7 @@ const TaskList = () => {
                   const taskId = task.id || `task-${Date.now()}-${index}`;
                   return (
                     <tr 
-                      key={taskId}
+                      key={`task-${taskId}`}
                       className="hover:bg-gray-50"
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
