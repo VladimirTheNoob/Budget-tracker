@@ -38,9 +38,9 @@ const TaskInput = (props) => {
   const fetchData = useCallback(async () => {
     try {
       const [tasksResponse, employeesResponse, employeeDepartmentsResponse] = await Promise.all([
-        axios.get('http://localhost:5000/api/tasks'),
-        axios.get('http://localhost:5000/api/employees'),
-        axios.get('http://localhost:5000/api/employee-departments')
+        axios.get('http://localhost:5000/api/tasks', { withCredentials: true }),
+        axios.get('http://localhost:5000/api/employees', { withCredentials: true }),
+        axios.get('http://localhost:5000/api/employee-departments', { withCredentials: true })
       ]);
 
       // Process tasks
@@ -149,7 +149,7 @@ const TaskInput = (props) => {
         }
 
         // Fetch existing tasks to check for server-side duplicates
-        const existingTasksResponse = await axios.get('http://localhost:5000/api/tasks');
+        const existingTasksResponse = await axios.get('http://localhost:5000/api/tasks', { withCredentials: true });
         const existingTaskNames = new Set(
           existingTasksResponse.data.map(task => task.name.toLowerCase())
         );
@@ -259,56 +259,35 @@ const TaskInput = (props) => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     try {
-      // Find if task already exists (use case-insensitive name matching)
-      const selectedTask = tasks.find(t => 
-        t.name.toLowerCase() === task.taskName.toLowerCase()
-      );
-      
-      // Prepare task data
       const taskData = {
         name: task.taskName,
         employee: task.employee,
         date: task.date,
         comments: task.comments,
-        status: selectedTask?.status || 'pending',
+        status: task.status,
         department: task.department,
-        email: task.mail
+        email: task.mail,
+        id: task.id
       };
 
-      console.log('Submitting task data:', taskData);
-      console.log('Selected task:', selectedTask);
+      console.log('Submitting task:', taskData);
 
-      if (selectedTask) {
-        console.log('Updating existing task:', selectedTask.id);
-        // Update existing task
-        const response = await axios.put(
-          `http://localhost:5000/api/tasks/${selectedTask.id}`,
-          {
-            ...taskData,
-            id: selectedTask.id  // Explicitly include the ID
-          },
-          { headers: { 'Content-Type': 'application/json' } }
-        );
-
-        if (response.status === 200) {
-          console.log('Task updated successfully:', response.data);
-          alert('Task updated successfully!');
+      const response = await axios.put(`http://localhost:5000/api/tasks/${task.id}`, taskData, {
+        withCredentials: true,  // Ensure credentials are sent
+        headers: {
+          'Content-Type': 'application/json'
         }
-      } else {
-        // Create new task
-        const response = await axios.post(
-          'http://localhost:5000/api/tasks',
-          taskData,
-          { headers: { 'Content-Type': 'application/json' } }
-        );
+      });
 
-        if (response.status === 201) {
-          console.log('Task created successfully:', response.data);
-          alert('Task created successfully!');
-        }
-      }
+      console.log('Task saved successfully:', response.data);
+      
+      // Update tasks in parent component
+      const updatedTask = response.data.task;
+      const updatedTasks = tasks.map(task => 
+        task.id === updatedTask.id ? updatedTask : task
+      );
+      setTasks(updatedTasks);
 
       // Reset form
       setTask({
@@ -319,16 +298,10 @@ const TaskInput = (props) => {
         date: '',
         comments: ''
       });
-
-      // Refresh data
-      await fetchData();
-      
-      // Notify parent component
       onDataSaved();
-
     } catch (error) {
       console.error('Error saving task:', error);
-      alert(`Failed to save task: ${error.response?.data?.error || error.message}`);
+      alert(`Error saving task: ${error.response?.data?.error || error.message}`);
     }
   };
 

@@ -34,19 +34,35 @@ const TaskList = ({ refreshTrigger, tasks, employees }) => {
 
   const fetchData = async () => {
     try {
-      const [tasksRes, employeesRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/tasks'),
-        axios.get('http://localhost:5000/api/employees')
+      const [tasksResponse, employeesResponse] = await Promise.all([
+        axios.get('http://localhost:5000/api/tasks', { withCredentials: true }),
+        axios.get('http://localhost:5000/api/employees', { 
+          withCredentials: true,
+          validateStatus: (status) => status === 200 || status === 403 
+        })
       ]);
       
-      // Process data but don't set state - it comes from props
-      const tasksWithIds = tasksRes.data.map((task, index) => ({
+      // Process tasks
+      const tasksWithIds = tasksResponse.data.map((task, index) => ({
         ...task,
         id: task.id || `task-${Date.now()}-${index}`,
         taskName: task.name
       }));
+
+      // Only process employees if the request was successful
+      if (employeesResponse.status === 200) {
+        // Process data but don't set state - it comes from props
+        const processedEmployees = employeesResponse.data;
+        console.log('Fetched employees:', processedEmployees);
+      } else {
+        console.warn('No permission to fetch employees');
+        // Optionally, show a user-friendly notification
+        alert('You do not have permission to view employee details.');
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
+      // Handle network errors or other issues
+      alert('An error occurred while fetching data. Please try again later.');
     }
   };
 

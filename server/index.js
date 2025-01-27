@@ -8,6 +8,12 @@ const path = require('path');
 const { oauth2Client } = require('./utils/googleAuth');
 const { google } = require('googleapis');
 const crypto = require('crypto');
+const { 
+  getUserRole, 
+  setUserRole, 
+  checkPermission 
+} = require('./utils/rbac');
+const { ROLES } = require('./config/roles');
 
 const app = express();  
 const port = process.env.PORT || 5000;
@@ -74,7 +80,7 @@ let employeeDepartments = readJsonFile(employeeDepartmentsFile);
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL,
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
@@ -86,11 +92,11 @@ app.use(express.urlencoded({ extended: true }));
 
 // Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET,
+  secret: process.env.SESSION_SECRET || 'your_fallback_secret',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: false, // Change to false for development
     httpOnly: true,
     sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
@@ -108,14 +114,15 @@ require('./utils/googleAuth').configurePassport();
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, {
     authenticated: req.isAuthenticated(),
-    user: req.user,
+    user: req.user?.emails?.[0]?.value || req.user?.email,
+    userRole: req.user ? getUserRole(req.user.emails?.[0]?.value || req.user.email) : null,
     session: req.session
   });
   next();
 });
 
 // Task Management Routes
-app.get('/api/tasks', (req, res) => {
+app.get('/api/tasks', checkPermission('tasks'), (req, res) => {
   try {
     const tasks = readJsonFile(tasksFile);
     // Ensure at least empty array is returned
@@ -127,9 +134,21 @@ app.get('/api/tasks', (req, res) => {
 });
 
 // PUT endpoint for updating tasks
-app.put('/api/tasks/:taskId', (req, res) => {
+app.put('/api/tasks/:taskId', checkPermission('tasks'), (req, res) => {
   try {
     console.log('=== PUT /api/tasks/:taskId called ===');
+    console.log('Authenticated User:', {
+      isAuthenticated: req.isAuthenticated(),
+      user: req.user?.emails?.[0]?.value || req.user?.email,
+      userRole: req.user ? getUserRole(req.user.emails?.[0]?.value || req.user.email) : null
+    });
+
+    // Additional authentication check
+    if (!req.isAuthenticated()) {
+      console.warn('Unauthorized: Not authenticated');
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     console.log('Task ID:', req.params.taskId);
     console.log('Update data:', req.body);
     
@@ -183,7 +202,7 @@ app.put('/api/tasks/:taskId', (req, res) => {
   }
 });
 
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', checkPermission('tasks'), (req, res) => {
   try {
     const taskData = req.body;
     console.log('Received task data:', taskData);
@@ -235,7 +254,7 @@ app.post('/api/tasks', (req, res) => {
   }
 });
 
-app.post('/api/bulk-tasks', (req, res) => {
+app.post('/api/tasks/bulk', checkPermission('tasks'), (req, res) => {
   try {
     const { tasks: newTasks } = req.body;
     console.log('Received bulk tasks data:', req.body);
@@ -273,7 +292,7 @@ app.post('/api/bulk-tasks', (req, res) => {
 });
 
 // Employee Management Routes
-app.get('/api/employees', (req, res) => {
+app.get('/api/employees', checkPermission('employees'), (req, res) => {
   try {
     const employees = readJsonFile(employeesFile);
     // Filter out duplicates before sending
@@ -291,7 +310,7 @@ app.get('/api/employees', (req, res) => {
 });
 
 // Employee-Department Routes
-app.get('/api/employee-departments', (req, res) => {
+app.get('/api/employee-departments', checkPermission('employees'), (req, res) => {
   console.log('=== GET /api/employee-departments called ===');
   try {
     const currentEmployeeDepartments = readJsonFile(employeeDepartmentsFile);
@@ -482,7 +501,7 @@ authRouter.get('/logout', handleLogout);
 app.use('/auth', authRouter);
 
 // Notification Route
-app.post('/api/notifications/send', async (req, res) => {
+app.post('/api/notifications/send', checkPermission('notifications'), async (req, res) => {
   try {
     console.log('=== SEND NOTIFICATIONS ROUTE HANDLER CALLED ===');
     const { notifications } = req.body;
@@ -523,7 +542,7 @@ app.post('/api/notifications/send', async (req, res) => {
       try {
         const emailContent = `From: ${req.user.email}
 To: ${notification.email}
-Subject: Task Update: ${notification.taskName}
+Subject: =?UTF-8?B?${Buffer.from(notification.taskName, 'utf8').toString('base64')}?=
 Content-Type: text/plain; charset=utf-8
 MIME-Version: 1.0
 
@@ -533,33 +552,11 @@ Task Details:
 - Task: ${notification.taskName}
 - Employee: ${notification.employeeName}`;
 
-        const encodedEmail = Buffer.from(emailContent)
+        const encodedEmail = Buffer.from(emailContent, 'utf8')
           .toString('base64')
           .replace(/\+/g, '-')
           .replace(/\//g, '_')
           .replace(/=+$/, '');
-
-        const mailOptions = {
-          from: process.env.EMAIL_USER,
-          to: notification.email,
-          subject: `Notification: ${notification.taskName}`,
-          text: notification.message,
-          headers: {
-            'Content-Type': 'text/plain; charset=UTF-8'
-          },
-          subjectEncoding: 'UTF-8'
-        };
-
-        const htmlMailOptions = {
-          from: process.env.EMAIL_USER,
-          to: notification.email,
-          subject: `Notification: ${notification.taskName}`,
-          html: `<p>${notification.message}</p>`,
-          headers: {
-            'Content-Type': 'text/html; charset=UTF-8'
-          },
-          subjectEncoding: 'UTF-8'
-        };
 
         await gmail.users.messages.send({
           userId: 'me',
@@ -635,6 +632,87 @@ app.post('/api/tasks/bulk', (req, res) => {
     res.status(500).json({ 
       error: 'Server error',
       details: error.message 
+    });
+  }
+});
+
+// RBAC Management Routes
+app.get('/api/roles', checkPermission('roles'), (req, res) => {
+  try {
+    const userEmail = req.user.emails?.[0]?.value || req.user.email;
+    const currentUserRole = getUserRole(userEmail);
+
+    // Only admins can list all roles
+    if (currentUserRole !== ROLES.ADMIN) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const rolesFile = path.join(__dirname, 'storage/user-roles.json');
+    const userRoles = readJsonFile(rolesFile);
+    res.json(userRoles);
+  } catch (error) {
+    console.error('Error fetching roles:', error);
+    res.status(500).json({ error: 'Failed to fetch roles' });
+  }
+});
+
+app.put('/api/roles', checkPermission('roles'), (req, res) => {
+  try {
+    const { email, role } = req.body;
+    const userEmail = req.user.emails?.[0]?.value || req.user.email;
+    const currentUserRole = getUserRole(userEmail);
+
+    // Only admins can modify roles
+    if (currentUserRole !== ROLES.ADMIN) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!email || !role) {
+      return res.status(400).json({ error: 'Email and role are required' });
+    }
+
+    setUserRole(email, role);
+    res.json({ 
+      message: 'Role updated successfully', 
+      userRole: { email, role } 
+    });
+  } catch (error) {
+    console.error('Error updating role:', error);
+    res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// Modify authentication status route to include role
+app.get('/auth/status', (req, res) => {
+  console.log('Auth Status Request:', {
+    isAuthenticated: req.isAuthenticated(),
+    user: req.user,
+    session: req.session
+  });
+
+  if (req.isAuthenticated()) {
+    const userEmail = req.user.emails?.[0]?.value || req.user.email;
+    const userRole = getUserRole(userEmail);
+    
+    console.log('Authenticated User:', {
+      email: userEmail,
+      role: userRole
+    });
+    
+    res.json({
+      authenticated: true,
+      user: {
+        ...req.user,
+        email: userEmail
+      },
+      role: userRole || (userEmail === 'belyakovvladimirs@gmail.com' ? ROLES.ADMIN : ROLES.EMPLOYEE)
+    });
+  } else {
+    console.log('Not Authenticated');
+    res.json({
+      authenticated: false,
+      user: null,
+      role: null
     });
   }
 });
