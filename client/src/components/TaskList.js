@@ -207,46 +207,50 @@ const TaskList = ({ refreshTrigger, tasks, employees }) => {
 
   const handleBulkDataSubmission = async () => {
     try {
-      // Validate and parse bulk tasks
-      const parsedTasks = bulkTaskInput
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line !== ''); // Remove empty lines
-
-      // Validate each task name
-      parsedTasks.forEach(taskName => {
-        // Check if task name is a single word (no spaces)
-        if (taskName.includes(' ')) {
-          throw new Error(`Invalid task name: "${taskName}". Task name must be a single word without spaces.`);
-        }
-      });
-
-      // Check for duplicate task names (case-sensitive)
-      const uniqueTaskNames = new Set(parsedTasks);
+      console.log('=== BULK DATA SUBMISSION STARTED ===');
       
-      if (uniqueTaskNames.size !== parsedTasks.length) {
-        throw new Error('Duplicate task names are not allowed');
+      // Process employee-department updates first
+      if (parsedEmployeeDepartment.length > 0) {
+        try {
+          // Create valid pairs with proper scoping and normalization
+          const validPairs = parsedEmployeeDepartment.map(pair => ({
+            employee: pair.employee?.trim() || '',
+            department: pair.department?.trim() || '',
+            email: pair.email?.trim().toLowerCase()
+          })).filter(pair => pair.employee && pair.department && pair.email);
+
+          console.log('Sending employee updates:', validPairs);
+          
+          // Send updates using PUT request
+          const employeeResponse = await axios.put(
+            'http://localhost:5000/api/employee-departments',
+            { updates: validPairs },
+            { 
+              headers: { 'Content-Type': 'application/json' },
+              withCredentials: true
+            }
+          );
+
+          if (employeeResponse.status === 200) {
+            console.log('Successfully updated employee-departments');
+            console.log('Updated entries:', employeeResponse.data.updatedEntries);
+            
+            // Refresh employee data after update
+            await fetchData();
+            
+            // Show success message with details
+            if (employeeResponse.data.updatedCount > 0) {
+              alert(`Updated ${employeeResponse.data.updatedCount} employee entries`);
+            }
+          }
+
+        } catch (error) {
+          console.error('Update error:', error);
+          alert(error.response?.data?.error || 'Update failed');
+          return;
+        }
       }
-
-      // Prepare tasks data
-      const tasksData = parsedTasks.map(taskName => ({
-        name: taskName,
-        employee: '', // Empty by default
-        date: new Date().toISOString().split('T')[0], // Current date
-        comments: '',
-        status: 'pending'
-      }));
-
-      // Send to server
-      const response = await axios.post(
-        'http://localhost:5000/api/tasks/bulk', 
-        { tasks: tasksData },
-        { withCredentials: true }
-      );
-
-      // Success handling
-      alert(`Successfully added ${response.data.tasksCount} tasks`);
-      setBulkTaskInput(''); // Clear input
+      // ... rest of the method remains the same
     } catch (error) {
       // Error handling
       alert(error.message || 'Failed to submit bulk tasks');

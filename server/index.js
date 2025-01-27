@@ -303,70 +303,87 @@ app.get('/api/employee-departments', (req, res) => {
   }
 });
 
+// Employee Department Management Routes
 app.put('/api/employee-departments', (req, res) => {
-  console.log('PUT /api/employee-departments received request');
   try {
+    console.log('=== PUT /api/employee-departments called ===');
     const { updates } = req.body;
-    const employeeDepartments = readJsonFile(employeeDepartmentsFile);
-    const employees = readJsonFile(employeesFile);
 
-    // Validate updates
-    if (!Array.isArray(updates)) {
-      return res.status(400).json({ error: 'Invalid updates format' });
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty updates' });
     }
 
+    // Read current employee departments
+    let employeeDepartments = readJsonFile(employeeDepartmentsFile);
+    let employees = readJsonFile(employeesFile);
+
+    const updatedEntries = [];
+    const updatedCount = 0;
+
     updates.forEach(update => {
-      // Find by ID first, then fallback to email
-      const depIndex = employeeDepartments.findIndex(e =>
-        e.id === update.id || e.email.toLowerCase() === update.email.toLowerCase()
+      const { employee, department, email } = update;
+
+      // Find existing entry by employee name
+      const existingEntryIndex = employeeDepartments.findIndex(
+        entry => entry.employee === employee
       );
 
-      // Update or create entry
-      if (depIndex > -1) {
-        employeeDepartments[depIndex] = {
-          ...employeeDepartments[depIndex],
-          ...update,
-          id: employeeDepartments[depIndex].id // Preserve existing ID
+      if (existingEntryIndex !== -1) {
+        // Update existing entry
+        employeeDepartments[existingEntryIndex] = {
+          ...employeeDepartments[existingEntryIndex],
+          department,
+          email
         };
+        updatedEntries.push(employeeDepartments[existingEntryIndex]);
       } else {
-        employeeDepartments.push({
-          ...update,
+        // Create new entry
+        const newEntry = {
+          employee,
+          department,
+          email,
           id: `empd-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        });
+        };
+        employeeDepartments.push(newEntry);
+        updatedEntries.push(newEntry);
       }
 
-      // Sync with employees list using ID
-      const empIndex = employees.findIndex(e => e.id === update.id);
-      if (empIndex > -1) {
-        employees[empIndex] = {
-          ...employees[empIndex],
-          name: update.employee, // Update name if changed
-          department: update.department,
-          email: update.email
+      // Update or add to employees list
+      const existingEmployeeIndex = employees.findIndex(
+        emp => emp.name === employee
+      );
+
+      if (existingEmployeeIndex !== -1) {
+        employees[existingEmployeeIndex] = {
+          ...employees[existingEmployeeIndex],
+          department,
+          email
         };
       } else {
-        // Create new employee if ID doesn't exist
         employees.push({
-          id: `emp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          name: update.employee,
-          department: update.department,
-          email: update.email,
-          position: "Employee"
+          name: employee,
+          department,
+          email,
+          id: `emp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         });
       }
     });
 
+    // Write updated data back to files
     writeJsonFile(employeeDepartmentsFile, employeeDepartments);
     writeJsonFile(employeesFile, employees);
-    
-    res.json({ 
-      success: true,
-      updatedCount: updates.length
-    });
 
+    res.status(200).json({
+      message: 'Employee departments updated successfully',
+      updatedCount: updatedEntries.length,
+      updatedEntries
+    });
   } catch (error) {
-    console.error('Server update error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error updating employee departments:', error);
+    res.status(500).json({ 
+      error: 'Failed to update employee departments', 
+      details: error.message 
+    });
   }
 });
 
