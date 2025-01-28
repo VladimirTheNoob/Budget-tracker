@@ -1,51 +1,53 @@
-import React from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { toast } from 'react-hot-toast';
 import { ROLES } from '../config/roles';
 
-const ProtectedRoute = ({ 
-  children, 
-  allowedRoles = [], 
-  isAuthenticated = false, 
-  userRole 
-}) => {
-  console.log('ProtectedRoute - isAuthenticated:', isAuthenticated);
-  console.log('ProtectedRoute - role:', userRole);
-  console.log('ProtectedRoute - allowedRoles:', allowedRoles);
+const ProtectedRoute = ({ children, allowedRoles = ['admin', 'manager', 'employee'] }) => {
+  const { isAuthenticated, userRole } = useSelector((state) => state.auth);
 
-  // If not authenticated, redirect to login
+  useEffect(() => {
+    console.log('ProtectedRoute - isAuthenticated:', isAuthenticated);
+    console.log('ProtectedRoute - role:', userRole);
+    console.log('ProtectedRoute - allowedRoles:', allowedRoles);
+  }, [isAuthenticated, userRole, allowedRoles]);
+
+  // Not authenticated
   if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
+    toast.error('Please log in to access this page', {
+      position: 'top-center',
+      duration: 3000
+    });
+    return <Navigate to="/login" replace />;
   }
 
-  // Normalize roles to ensure consistent comparison
-  const normalizedUserRole = userRole?.toLowerCase();
-  const normalizedAllowedRoles = allowedRoles.map(role => role.toLowerCase());
-
-  // Check if user's role is allowed
-  const hasRequiredRole = normalizedAllowedRoles.length === 0 || 
-    normalizedAllowedRoles.includes(normalizedUserRole);
-
-  // If user doesn't have required role, show access denied
-  if (!hasRequiredRole) {
-    return (
-      <div className="flex justify-center items-center h-full text-center text-red-600 p-6">
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Access Denied</h2>
-          <p>You do not have permission to access this page.</p>
-          <p>Required Role: {allowedRoles.join(' or ')}</p>
-          <p>Your Current Role: {userRole}</p>
-        </div>
-      </div>
-    );
+  // Undefined role handling
+  if (!userRole) {
+    toast.error('Unable to determine user role. Please log out and log in again.', {
+      position: 'top-center',
+      duration: 4000
+    });
+    return <Navigate to="/login" replace />;
   }
 
-  // If children are provided, render them
-  if (children) {
+  // Admin gets full access
+  if (userRole === ROLES.ADMIN) {
     return children;
   }
 
-  // Otherwise, render child routes
-  return <Outlet />;
+  // Role-based access control
+  const hasRequiredRole = allowedRoles.includes(userRole);
+  
+  if (!hasRequiredRole) {
+    toast.error('You do not have permission to access this page', {
+      position: 'top-center',
+      duration: 3000
+    });
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  return children;
 };
 
 export default ProtectedRoute;

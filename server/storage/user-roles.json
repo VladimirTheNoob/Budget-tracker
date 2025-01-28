@@ -1,10 +1,10 @@
 [
   {
-    "email": "belyakovvladimirs@gmail.com",
-    "role": "admin"
+    "employeeId": "emp-1738066596579-angqgyikk",
+    "role": "manager"
   },
   {
-    "email": "vladimirbelyakov1981@gmail.com",
-    "role": "manager"
+    "employeeId": "emp-1738066596579-hjpyuwpb0",
+    "role": "admin"
   }
 ]

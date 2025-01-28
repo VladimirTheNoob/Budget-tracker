@@ -12,30 +12,61 @@ const oauth2Client = new OAuth2Client(
 // Configure passport
 function configurePassport() {
   try {
-    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-      passport.use(new GoogleStrategy({
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: '/auth/google/callback'
-      },
-      function(accessToken, refreshToken, profile, cb) {
+    console.log('Configuring Passport Google Strategy');
+    console.log('Client ID:', process.env.GOOGLE_CLIENT_ID ? 'Present' : 'Missing');
+    console.log('Client Secret:', process.env.GOOGLE_CLIENT_SECRET ? 'Present' : 'Missing');
+    console.log('Redirect URI:', process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/auth/google/callback');
+
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      console.error('Missing Google OAuth credentials');
+      return;
+    }
+
+    passport.use(new GoogleStrategy({
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.GOOGLE_REDIRECT_URI || '/auth/google/callback',
+      passReqToCallback: true, // Pass the request to the callback
+      scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send']
+    },
+    function(req, accessToken, refreshToken, profile, cb) {
+      try {
+        console.log('Google OAuth Callback:', {
+          profileId: profile.id,
+          email: profile.emails?.[0]?.value,
+          name: profile.displayName
+        });
+
         oauth2Client.setCredentials({
           access_token: accessToken,
           refresh_token: refreshToken
         });
-        return cb(null, profile);
-      }));
 
-      passport.serializeUser((user, done) => {
-        done(null, user);
-      });
+        // Attach additional info to the user object
+        const user = {
+          ...profile,
+          accessToken,
+          refreshToken
+        };
 
-      passport.deserializeUser((user, done) => {
-        done(null, user);
-      });
-    } else {
-      console.log('Google OAuth credentials not found, skipping OAuth configuration');
-    }
+        return cb(null, user);
+      } catch (error) {
+        console.error('Error in Google OAuth callback:', error);
+        return cb(error, null);
+      }
+    }));
+
+    passport.serializeUser((user, done) => {
+      console.log('Serializing user:', user.id);
+      done(null, user);
+    });
+
+    passport.deserializeUser((user, done) => {
+      console.log('Deserializing user:', user.id);
+      done(null, user);
+    });
+
+    console.log('Passport Google Strategy configured successfully');
   } catch (error) {
     console.error('Error configuring passport:', error);
   }

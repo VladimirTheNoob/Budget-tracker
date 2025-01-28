@@ -11,9 +11,11 @@ const crypto = require('crypto');
 const { 
   getUserRole, 
   setUserRole, 
-  checkPermission 
+  checkPermission,
+  getEmployeeIdByEmail
 } = require('./utils/rbac');
 const { ROLES } = require('./config/roles');
+const { configurePassport } = require('./utils/googleAuth');
 
 const app = express();  
 const port = process.env.PORT || 5000;
@@ -90,7 +92,7 @@ app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Requested-With'],
   exposedHeaders: ['Set-Cookie']
 }));
 
@@ -99,14 +101,15 @@ app.use(express.urlencoded({ extended: true }));
 
 // Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your_fallback_secret',
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // Change to false for development
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    domain: process.env.NODE_ENV === 'production' ? 'yourdomain.com' : 'localhost'
   }
 }));
 
@@ -115,21 +118,41 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // Configure Passport
-require('./utils/googleAuth').configurePassport();
+configurePassport();
+
+// Passport serialization
+passport.serializeUser((user, done) => {
+  done(null, user);
+});
+
+passport.deserializeUser((user, done) => {
+  done(null, user);
+});
 
 // Debug middleware
 app.use((req, res, next) => {
+  const userEmail = req.user?.emails?.[0]?.value || req.user?.email;
   console.log(`${req.method} ${req.path}`, {
     authenticated: req.isAuthenticated(),
-    user: req.user?.emails?.[0]?.value || req.user?.email,
-    userRole: req.user ? getUserRole(req.user.emails?.[0]?.value || req.user.email) : null,
+    user: userEmail,
+    userRole: req.user 
+      ? getUserRole(getEmployeeIdByEmail(userEmail), userEmail) 
+      : null,
     session: req.session
   });
   next();
 });
 
+// Authentication check middleware
+const ensureAuthenticated = (req, res, next) => {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ error: 'Authentication required' });
+};
+
 // Task Management Routes
-app.get('/api/tasks', checkPermission('tasks', 'read'), (req, res) => {
+app.get('/api/tasks', ensureAuthenticated, checkPermission('tasks', 'read'), (req, res) => {
   try {
     const tasks = readJsonFile(tasksFile);
     // Ensure at least empty array is returned
@@ -144,10 +167,13 @@ app.get('/api/tasks', checkPermission('tasks', 'read'), (req, res) => {
 app.put('/api/tasks/:taskId', checkPermission('tasks', 'write'), (req, res) => {
   try {
     console.log('=== PUT /api/tasks/:taskId called ===');
+    const userEmail = req.user?.emails?.[0]?.value || req.user?.email;
     console.log('Authenticated User:', {
       isAuthenticated: req.isAuthenticated(),
-      user: req.user?.emails?.[0]?.value || req.user?.email,
-      userRole: req.user ? getUserRole(req.user.emails?.[0]?.value || req.user.email) : null
+      user: userEmail,
+      userRole: req.user 
+        ? getUserRole(getEmployeeIdByEmail(userEmail), userEmail)
+        : null
     });
 
     // Additional authentication check
@@ -444,21 +470,73 @@ authRouter.get('/google',
 );
 
 authRouter.get('/google/callback',
-  passport.authenticate('google', { 
-    failureRedirect: `${process.env.CLIENT_URL}/login`,
-    failureMessage: true
+  passport.authenticate('google', {
+    failureRedirect: 'http://localhost:3000/login',
+    failureFlash: true
   }),
   (req, res) => {
-    res.redirect(process.env.CLIENT_URL);
+    console.log('Google OAuth callback:', {
+      user: req.user,
+      isAuthenticated: req.isAuthenticated(),
+    });
+    
+    // Explicitly set session data
+    if (req.user) {
+      const userEmail = 
+        req.user.emails?.[0]?.value || 
+        req.user.email || 
+        null;
+
+      const employeeId = getEmployeeIdByEmail(userEmail);
+      const userRole = userEmail?.toLowerCase() === 'belyakovvladimirs@gmail.com'
+        ? ROLES.ADMIN
+        : getUserRole(employeeId, userEmail);
+
+      // Store additional user info in session
+      req.session.user = {
+        id: employeeId,
+        email: userEmail,
+        role: userRole || ROLES.EMPLOYEE
+      };
+
+      // Save session explicitly
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+        }
+        
+        // Redirect to tasks page with success message
+        res.redirect('http://localhost:3000/tasks');
+      });
+    } else {
+      // Redirect to login page if no user found
+      res.redirect('http://localhost:3000/login');
+    }
   }
 );
 
 authRouter.get('/status', (req, res) => {
-  res.json({
-    authenticated: req.isAuthenticated(),
+  console.log('Auth Status Request:', {
+    isAuthenticated: req.isAuthenticated(),
     user: req.user,
+    sessionUser: req.session.user,
     session: req.session
   });
+
+  if (req.isAuthenticated() && req.session.user) {
+    res.json({
+      authenticated: true,
+      user: req.session.user,
+      role: req.session.user.role
+    });
+  } else {
+    console.log('Not Authenticated');
+    res.json({
+      authenticated: false,
+      user: null,
+      role: null
+    });
+  }
 });
 
 // Logout handler function
@@ -644,7 +722,7 @@ app.post('/api/tasks/bulk', (req, res) => {
 app.get('/api/roles', checkPermission('roles'), (req, res) => {
   try {
     const userEmail = req.user.emails?.[0]?.value || req.user.email;
-    const currentUserRole = getUserRole(userEmail);
+    const currentUserRole = getUserRole(getEmployeeIdByEmail(userEmail), userEmail);
 
     // Only admins can list all roles
     if (currentUserRole !== ROLES.ADMIN) {
@@ -662,62 +740,40 @@ app.get('/api/roles', checkPermission('roles'), (req, res) => {
 
 app.put('/api/roles', checkPermission('roles'), (req, res) => {
   try {
-    const { email, role } = req.body;
+    const { employeeId, role } = req.body;
+    console.log('Received role update request:', { employeeId, role });
+
     const userEmail = req.user.emails?.[0]?.value || req.user.email;
-    const currentUserRole = getUserRole(userEmail);
+    const currentUserRole = getUserRole(getEmployeeIdByEmail(userEmail), userEmail);
 
     // Only admins can modify roles
     if (currentUserRole !== ROLES.ADMIN) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    if (!email || !role) {
-      return res.status(400).json({ error: 'Email and role are required' });
+    if (!employeeId || !role) {
+      console.log('Missing employeeId or role:', { employeeId, role });
+      return res.status(400).json({ error: 'Employee ID and role are required' });
     }
 
-    setUserRole(email, role);
+    // Find the employee by ID
+    const employees = readJsonFile(employeesFile);
+    const employee = employees.find(emp => emp.id === employeeId);
+
+    if (!employee) {
+      console.log('Employee not found:', employeeId);
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    setUserRole(employeeId, role);
+    console.log('Role updated successfully:', { employeeId, role });
     res.json({ 
       message: 'Role updated successfully', 
-      userRole: { email, role } 
+      userRole: { employeeId, role } 
     });
   } catch (error) {
     console.error('Error updating role:', error);
     res.status(500).json({ error: 'Failed to update role' });
-  }
-});
-
-// Modify authentication status route to include role
-app.get('/auth/status', (req, res) => {
-  console.log('Auth Status Request:', {
-    isAuthenticated: req.isAuthenticated(),
-    user: req.user,
-    session: req.session
-  });
-
-  if (req.isAuthenticated()) {
-    const userEmail = req.user.emails?.[0]?.value || req.user.email;
-    const userRole = getUserRole(userEmail);
-    
-    console.log('Authenticated User:', {
-      email: userEmail,
-      role: userRole
-    });
-    
-    res.json({
-      authenticated: true,
-      user: {
-        ...req.user,
-        email: userEmail
-      },
-      role: userRole || (userEmail === 'belyakovvladimirs@gmail.com' ? ROLES.ADMIN : ROLES.EMPLOYEE)
-    });
-  } else {
-    console.log('Not Authenticated');
-    res.json({
-      authenticated: false,
-      user: null,
-      role: null
-    });
   }
 });
 
@@ -750,6 +806,28 @@ app.post('/api/goals', checkPermission('goals', 'write'), (req, res) => {
   } catch (error) {
     console.error('Error saving goal:', error);
     res.status(500).json({ error: 'Failed to save goal' });
+  }
+});
+
+// Department Current Values endpoint
+app.get('/api/department-values', checkPermission('goals', 'read'), (req, res) => {
+  try {
+    const departmentValues = readJsonFile(path.join(storageDir, 'department-values.json'));
+    res.status(200).json(departmentValues || {});
+  } catch (error) {
+    console.error('Error fetching department values:', error);
+    res.status(500).json({ error: 'Failed to fetch department values' });
+  }
+});
+
+app.put('/api/department-values', checkPermission('goals', 'write'), (req, res) => {
+  try {
+    const values = req.body;
+    writeJsonFile(path.join(storageDir, 'department-values.json'), values);
+    res.status(200).json({ message: 'Department values updated successfully' });
+  } catch (error) {
+    console.error('Error updating department values:', error);
+    res.status(500).json({ error: 'Failed to update department values' });
   }
 });
 

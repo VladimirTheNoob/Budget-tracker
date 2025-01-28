@@ -3,74 +3,76 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 
 const GoalInput = ({ onGoalAdded }) => {
-  const [goals, setGoals] = useState([]);
-  const [goal, setGoal] = useState({
-    title: '',
-    description: '',
-    targetDate: '',
-    targetAmount: '',
-    status: 'pending'
-  });
+  const [departments, setDepartments] = useState([]);
+  const [departmentGoals, setDepartmentGoals] = useState({});
+  const [currentValues, setCurrentValues] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Fetch goals on component mount
+  // Fetch data on component mount
   useEffect(() => {
-    fetchGoals();
+    fetchData();
   }, []);
 
-  const fetchGoals = async () => {
+  const fetchData = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/goals', {
-        withCredentials: true
+      const [deptResponse, valuesResponse] = await Promise.all([
+        axios.get('http://localhost:5000/api/employee-departments', {
+          withCredentials: true
+        }),
+        axios.get('http://localhost:5000/api/department-values', {
+          withCredentials: true
+        })
+      ]);
+
+      // Get unique departments
+      const uniqueDepartments = [...new Set(deptResponse.data.map(ed => ed.department))];
+      setDepartments(uniqueDepartments);
+      
+      // Initialize department goals and current values
+      const initialGoals = {};
+      uniqueDepartments.forEach(dept => {
+        initialGoals[dept] = '';
       });
-      if (Array.isArray(response.data)) {
-        setGoals(response.data);
-      } else {
-        setGoals([]); // Set an empty array if the response data is not an array
-      }
+      setDepartmentGoals(initialGoals);
+      
+      // Set current values
+      setCurrentValues(valuesResponse.data || {});
+      
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching goals:', err);
-      setError('Failed to fetch goals. Please try again later.');
+      console.error('Error fetching data:', err);
+      setError('Failed to fetch data. Please try again later.');
       setLoading(false);
     }
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setGoal(prev => ({
+  const handleGoalChange = (department, value) => {
+    setDepartmentGoals(prev => ({
       ...prev,
-      [name]: value
+      [department]: value
     }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleCurrentValueChange = async (department, value) => {
     try {
-      const response = await axios.post('http://localhost:5000/api/goals', goal, {
+      const newValues = {
+        ...currentValues,
+        [department]: value
+      };
+      setCurrentValues(newValues);
+
+      await axios.put('http://localhost:5000/api/department-values', newValues, {
         withCredentials: true
       });
-      
-      if (response.status === 201) {
-        // Clear form
-        setGoal({
-          title: '',
-          description: '',
-          targetDate: '',
-          targetAmount: '',
-          status: 'pending'
-        });
-        
-        // Notify parent component
-        if (onGoalAdded) {
-          onGoalAdded(response.data);
-        }
-      }
     } catch (error) {
-      console.error('Error creating goal:', error);
-      alert('Failed to create goal. Please try again.');
+      console.error('Error updating current value:', error);
     }
+  };
+
+  const calculateExecution = (currentValue, goalValue) => {
+    if (!goalValue || isNaN(goalValue) || !currentValue || isNaN(currentValue)) return 0;
+    return ((currentValue / goalValue) - 1) * 100;
   };
 
   if (loading) {
@@ -83,106 +85,52 @@ const GoalInput = ({ onGoalAdded }) => {
 
   return (
     <div className="container mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">Goal Input</h1>
+      <h1 className="text-2xl font-bold mb-6">Department Goals</h1>
       
-      {/* Goal Input Form */}
-      <div className="p-4 bg-white rounded-lg shadow">
-        <h2 className="text-2xl font-bold mb-4">Create New Goal</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Title</label>
-            <input
-              type="text"
-              name="title"
-              value={goal.title}
-              onChange={handleChange}
-              required
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Description</label>
-            <textarea
-              name="description"
-              value={goal.description}
-              onChange={handleChange}
-              required
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Target Date</label>
-            <input
-              type="date"
-              name="targetDate"
-              value={goal.targetDate}
-              onChange={handleChange}
-              required
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Target Amount</label>
-            <input
-              type="number"
-              name="targetAmount"
-              value={goal.targetAmount}
-              onChange={handleChange}
-              required
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            />
-          </div>
-          
-          <button
-            type="submit"
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Create Goal
-          </button>
-        </form>
-      </div>
-
-      {/* Goals Table */}
+      {/* Department Goals Table */}
       <div className="bg-white shadow-md rounded my-6">
         <table className="min-w-full table-auto">
           <thead>
             <tr className="bg-gray-200 text-gray-600 uppercase text-sm leading-normal">
-              <th className="py-3 px-6 text-left">Title</th>
-              <th className="py-3 px-6 text-left">Description</th>
-              <th className="py-3 px-6 text-center">Target Date</th>
-              <th className="py-3 px-6 text-center">Target Amount</th>
-              <th className="py-3 px-6 text-center">Status</th>
+              <th className="py-3 px-6 text-left">Department</th>
+              <th className="py-3 px-6 text-left">Current State</th>
+              <th className="py-3 px-6 text-left">Goal</th>
+              <th className="py-3 px-6 text-center">% Execution</th>
             </tr>
           </thead>
           <tbody className="text-gray-600 text-sm font-light">
-            {goals.map((goal, index) => (
-              <tr key={`goal-${index}`} className="border-b border-gray-200 hover:bg-gray-100">
+            {departments.map((department) => (
+              <tr key={department} className="border-b border-gray-200 hover:bg-gray-100">
                 <td className="py-3 px-6 text-left whitespace-nowrap">
-                  <div className="font-medium">{goal.title}</div>
+                  <div className="font-medium">{department}</div>
                 </td>
                 <td className="py-3 px-6 text-left">
-                  <div className="font-medium">{goal.description}</div>
+                  <input
+                    type="number"
+                    value={currentValues[department] || ''}
+                    onChange={(e) => handleCurrentValueChange(department, e.target.value)}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    placeholder="Enter current value"
+                  />
+                </td>
+                <td className="py-3 px-6 text-left">
+                  <input
+                    type="number"
+                    value={departmentGoals[department]}
+                    onChange={(e) => handleGoalChange(department, e.target.value)}
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    placeholder="Enter goal value"
+                  />
                 </td>
                 <td className="py-3 px-6 text-center">
-                  {new Date(goal.targetDate).toLocaleDateString()}
-                </td>
-                <td className="py-3 px-6 text-center">
-                  ${goal.targetAmount}
-                </td>
-                <td className="py-3 px-6 text-center">
-                  <span className={`bg-${goal.status === 'completed' ? 'green' : 'yellow'}-200 text-${goal.status === 'completed' ? 'green' : 'yellow'}-600 py-1 px-3 rounded-full text-xs`}>
-                    {goal.status}
-                  </span>
+                  {calculateExecution(currentValues[department], departmentGoals[department]).toFixed(2)}%
                 </td>
               </tr>
             ))}
-            {goals.length === 0 && (
+            {departments.length === 0 && (
               <tr>
-                <td colSpan="5" className="text-center py-4">
-                  No goals found. Add your first goal using the form above.
+                <td colSpan="4" className="text-center py-4">
+                  No departments found.
                 </td>
               </tr>
             )}

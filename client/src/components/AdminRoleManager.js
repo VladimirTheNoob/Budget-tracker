@@ -2,14 +2,18 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { ROLES } from '../config/roles';
+import { Toaster, toast } from 'react-hot-toast';
 
 const AdminRoleManager = ({ currentUserRole }) => {
   const [userRoles, setUserRoles] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [newRole, setNewRole] = useState({
+    employeeId: '',
     email: '',
     role: ROLES.EMPLOYEE
   });
   const [error, setError] = useState(null);
+  const [authStatus, setAuthStatus] = useState(null);
 
   useEffect(() => {
     // Check current user's role
@@ -37,12 +41,15 @@ const AdminRoleManager = ({ currentUserRole }) => {
         if (resolvedRole === ROLES.ADMIN) {
           console.log('Fetching user roles for admin');
           fetchUserRoles();
+          fetchEmployees();
         } else {
           console.log('Not an admin, cannot fetch roles');
         }
+
+        setAuthStatus(response.data);
       } catch (error) {
         console.error('Error checking user role:', error);
-        setError('Failed to check user role');
+        toast.error('Failed to check user role');
       }
     };
 
@@ -57,50 +64,120 @@ const AdminRoleManager = ({ currentUserRole }) => {
       setUserRoles(response.data);
     } catch (error) {
       console.error('Error fetching user roles:', error);
-      setError('Failed to fetch user roles');
+      toast.error('Failed to fetch user roles');
     }
+  };
+
+  const fetchEmployees = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/employees', {
+        withCredentials: true
+      });
+      setEmployees(response.data);
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+      toast.error('Failed to fetch employees');
+    }
+  };
+
+  const handleEmployeeChange = (e) => {
+    const employeeId = e.target.value;
+    const selectedEmployee = employees.find(emp => emp.id === employeeId);
+    setNewRole(prev => ({
+      ...prev,
+      employeeId,
+      email: selectedEmployee?.email || ''
+    }));
   };
 
   const handleRoleUpdate = async (e) => {
     e.preventDefault();
-    setError(null);
-
+    
     try {
+      const { employeeId, role } = newRole;
+      
+      console.log('Attempting to update role:', { employeeId, role });
+
+      // Validate inputs
+      if (!employeeId || !role) {
+        toast.error('Please select an employee and a role');
+        return;
+      }
+
+      // Extract user email safely
+      const userEmail = 
+        authStatus.user?.email || 
+        authStatus.user?.emails?.[0]?.value || 
+        null;
+
+      console.log('User Email for Role Update:', userEmail);
+
+      // Validate user email
+      if (!userEmail) {
+        toast.error('Cannot update role: User email is undefined');
+        return;
+      }
+
+      // Find the employee in the list
+      const employeeToUpdate = employees.find(emp => emp.id === employeeId);
+
+      if (!employeeToUpdate) {
+        toast.error('Employee not found');
+        return;
+      }
+
+      // Prepare role update payload
+      const updatePayload = {
+        employeeId: employeeId,
+        role: role
+      };
+
+      console.log('Role Update Payload:', updatePayload);
+
+      // Make API call to update role
       const response = await axios.put(
         'http://localhost:5000/api/roles', 
-        newRole, 
+        updatePayload, 
         { withCredentials: true }
       );
 
-      // Update local state
-      const updatedRoles = [...userRoles];
-      const existingRoleIndex = updatedRoles.findIndex(
-        ur => ur.email.toLowerCase() === newRole.email.toLowerCase()
-      );
+      console.log('Role Update Response:', response.data);
 
-      if (existingRoleIndex !== -1) {
-        updatedRoles[existingRoleIndex].role = newRole.role;
-      } else {
-        updatedRoles.push(newRole);
-      }
+      // Refresh roles after successful update
+      fetchUserRoles();
 
-      setUserRoles(updatedRoles);
-      
       // Reset form
       setNewRole({
+        employeeId: '',
         email: '',
         role: ROLES.EMPLOYEE
       });
 
-      alert('Role updated successfully');
+      // Show success notification
+      toast.success(`Role updated to ${role} for ${employeeToUpdate.name}`);
+
     } catch (error) {
       console.error('Error updating role:', error);
-      setError(error.response?.data?.error || 'Failed to update role');
+      
+      // Detailed error logging
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        console.error('Server Error Details:', error.response.data);
+        toast.error(error.response.data.message || 'Failed to update role');
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('No response received:', error.request);
+        toast.error('No response from server');
+      } else {
+        // Something happened in setting up the request
+        console.error('Error setting up request:', error.message);
+        toast.error('Error updating role');
+      }
     }
   };
 
   // Prevent non-admin access
-  if (currentUserRole !== ROLES.ADMIN) {
+  if (![ROLES.ADMIN].includes(currentUserRole)) {
     return (
       <div className="p-4 text-center text-red-600">
         Access Denied: Administrator privileges required
@@ -110,17 +187,38 @@ const AdminRoleManager = ({ currentUserRole }) => {
 
   return (
     <div className="container mx-auto p-4 bg-[#f5f5f5]">
+      <Toaster 
+        position="top-right" 
+        toastOptions={{
+          success: { duration: 3000 },
+          error: { duration: 5000 }
+        }} 
+      />
       <div className="max-w-2xl mx-auto bg-white rounded p-6 shadow-md">
         <h2 className="text-2xl font-bold mb-6 text-center">Role Management</h2>
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-            {error}
-          </div>
-        )}
-
         {/* Role Assignment Form */}
         <form onSubmit={handleRoleUpdate} className="space-y-4">
+          <div>
+            <label htmlFor="employee" className="block text-gray-700 text-sm font-medium mb-2">
+              Select Employee
+            </label>
+            <select
+              id="employee"
+              value={newRole.employeeId}
+              onChange={handleEmployeeChange}
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
+              required
+            >
+              <option value="">Select an employee</option>
+              {employees.map(employee => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label htmlFor="email" className="block text-gray-700 text-sm font-medium mb-2">
               User Email
@@ -129,16 +227,15 @@ const AdminRoleManager = ({ currentUserRole }) => {
               type="email"
               id="email"
               value={newRole.email}
-              onChange={(e) => setNewRole(prev => ({ ...prev, email: e.target.value }))}
-              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
-              placeholder="Enter user email"
-              required
+              readOnly
+              className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400 bg-gray-100"
+              placeholder="Employee email will appear here"
             />
           </div>
 
           <div>
             <label htmlFor="role" className="block text-gray-700 text-sm font-medium mb-2">
-              Role
+              Select Role
             </label>
             <select
               id="role"
@@ -147,61 +244,39 @@ const AdminRoleManager = ({ currentUserRole }) => {
               className="w-full border border-gray-300 rounded p-2 focus:outline-none focus:border-gray-400"
               required
             >
-              {Object.values(ROLES).map(role => (
-                <option key={role} value={role}>
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
-                </option>
-              ))}
+              <option value={ROLES.EMPLOYEE}>Employee</option>
+              <option value={ROLES.MANAGER}>Manager</option>
+              <option value={ROLES.ADMIN}>Admin</option>
             </select>
           </div>
 
-          <div className="flex justify-center">
-            <button
-              type="submit"
-              className="w-48 bg-black hover:bg-gray-800 text-white font-medium py-2 px-6 rounded"
-            >
-              Update Role
-            </button>
-          </div>
+          <button 
+            type="submit" 
+            className="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 transition duration-300"
+          >
+            Update Role
+          </button>
         </form>
 
         {/* User Roles List */}
         <div className="mt-8">
           <h3 className="text-xl font-semibold mb-4">Current User Roles</h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Role
-                  </th>
+          <table className="w-full border-collapse border border-gray-300">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border border-gray-300 p-2">Employee ID</th>
+                <th className="border border-gray-300 p-2">Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              {userRoles.map((role, index) => (
+                <tr key={index} className="hover:bg-gray-50">
+                  <td className="border border-gray-300 p-2">{role.employeeId}</td>
+                  <td className="border border-gray-300 p-2">{role.role}</td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {userRoles.map((userRole, index) => (
-                  <tr key={`${userRole.email}-${index}`}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {userRole.email}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        userRole.role === ROLES.ADMIN 
-                          ? 'bg-red-100 text-red-800' 
-                          : userRole.role === ROLES.MANAGER 
-                          ? 'bg-yellow-100 text-yellow-800' 
-                          : 'bg-green-100 text-green-800'
-                      }`}>
-                        {userRole.role.charAt(0).toUpperCase() + userRole.role.slice(1)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
