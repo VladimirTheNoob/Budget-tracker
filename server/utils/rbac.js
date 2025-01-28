@@ -56,7 +56,7 @@ const setUserRole = (email, role) => {
 };
 
 // Check permission middleware
-const checkPermission = (resource) => {
+const checkPermission = (resource, requiredPermissionType = 'read') => {
   return (req, res, next) => {
     // If not authenticated, deny access
     if (!req.isAuthenticated()) {
@@ -68,34 +68,31 @@ const checkPermission = (resource) => {
     console.log('Checking Permission:', {
       resource,
       userEmail,
-      method: req.method
+      method: req.method,
+      requiredPermissionType
     });
 
     const userRole = getUserRole(userEmail);
     console.log('User Role:', userRole);
 
-    const requiredPermission = ROLE_PERMISSIONS[userRole]?.[resource];
-    console.log('Required Permission:', requiredPermission);
+    const userPermission = ROLE_PERMISSIONS[userRole]?.[resource];
+    console.log('User Permission:', userPermission);
 
-    if (!requiredPermission || requiredPermission === PERMISSIONS.NONE) {
-      console.warn('Permission Denied - No Permission', {
+    // Check if user has the required permission
+    const hasPermission = 
+      userPermission === PERMISSIONS.WRITE || 
+      (requiredPermissionType === 'read' && userPermission === PERMISSIONS.READ);
+
+    if (!hasPermission) {
+      console.warn('Permission Denied', {
         userRole,
         resource,
-        requiredPermission
+        requiredPermissionType,
+        userPermission
       });
       return res.status(403).json({ 
         error: 'Access denied', 
         message: 'You do not have permission to access this resource' 
-      });
-    }
-
-    // If write permission is required but only read is available
-    // Allow write for roles with write or read permissions
-    if (req.method !== 'GET' && requiredPermission === PERMISSIONS.READ) {
-      console.log('Allowing write for read-permitted role', {
-        userRole,
-        resource,
-        method: req.method
       });
     }
 

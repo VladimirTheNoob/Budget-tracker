@@ -29,6 +29,7 @@ if (!fs.existsSync(storageDir)) {
 const tasksFile = path.join(storageDir, 'tasks.json');
 const employeesFile = path.join(storageDir, 'employees.json');
 const employeeDepartmentsFile = path.join(storageDir, 'employee-departments.json');
+const goalsFile = path.join(storageDir, 'goals.json');
 
 // Create tasks.json file if it doesn't exist
 if (!fs.existsSync(tasksFile)) {
@@ -46,6 +47,12 @@ if (!fs.existsSync(employeesFile)) {
 if (!fs.existsSync(employeeDepartmentsFile)) {
   fs.writeFileSync(employeeDepartmentsFile, '[]', 'utf8');
   console.log('employee-departments.json file created');
+}
+
+// Create goals.json file if it doesn't exist
+if (!fs.existsSync(goalsFile)) {
+  fs.writeFileSync(goalsFile, '[]', 'utf8');
+  console.log('goals.json file created');
 }
 
 // Helper function to read data from a JSON file
@@ -122,19 +129,19 @@ app.use((req, res, next) => {
 });
 
 // Task Management Routes
-app.get('/api/tasks', checkPermission('tasks'), (req, res) => {
+app.get('/api/tasks', checkPermission('tasks', 'read'), (req, res) => {
   try {
     const tasks = readJsonFile(tasksFile);
     // Ensure at least empty array is returned
     res.status(200).json(Array.isArray(tasks) ? tasks : []);
   } catch (error) {
     console.error('Error fetching tasks:', error);
-    res.status(500).json({ error: 'Failed to fetch tasks', details: error.message });
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
 
 // PUT endpoint for updating tasks
-app.put('/api/tasks/:taskId', checkPermission('tasks'), (req, res) => {
+app.put('/api/tasks/:taskId', checkPermission('tasks', 'write'), (req, res) => {
   try {
     console.log('=== PUT /api/tasks/:taskId called ===');
     console.log('Authenticated User:', {
@@ -202,7 +209,7 @@ app.put('/api/tasks/:taskId', checkPermission('tasks'), (req, res) => {
   }
 });
 
-app.post('/api/tasks', checkPermission('tasks'), (req, res) => {
+app.post('/api/tasks', checkPermission('tasks', 'write'), (req, res) => {
   try {
     const taskData = req.body;
     console.log('Received task data:', taskData);
@@ -254,7 +261,7 @@ app.post('/api/tasks', checkPermission('tasks'), (req, res) => {
   }
 });
 
-app.post('/api/tasks/bulk', checkPermission('tasks'), (req, res) => {
+app.post('/api/tasks/bulk', checkPermission('tasks', 'write'), (req, res) => {
   try {
     const { tasks: newTasks } = req.body;
     console.log('Received bulk tasks data:', req.body);
@@ -292,15 +299,12 @@ app.post('/api/tasks/bulk', checkPermission('tasks'), (req, res) => {
 });
 
 // Employee Management Routes
-app.get('/api/employees', checkPermission('employees'), (req, res) => {
+app.get('/api/employees', checkPermission('employees', 'read'), (req, res) => {
   try {
     const employees = readJsonFile(employeesFile);
     // Filter out duplicates before sending
     const uniqueEmployees = employees.filter((emp, index, self) =>
-      index === self.findIndex(e => 
-        e.id === emp.id && 
-        e.email.toLowerCase() === emp.email.toLowerCase()
-      )
+      index === self.findIndex(e => e.id === emp.id)
     );
     res.status(200).json(uniqueEmployees);
   } catch (error) {
@@ -310,7 +314,7 @@ app.get('/api/employees', checkPermission('employees'), (req, res) => {
 });
 
 // Employee-Department Routes
-app.get('/api/employee-departments', checkPermission('employees'), (req, res) => {
+app.get('/api/employee-departments', checkPermission('employees', 'read'), (req, res) => {
   console.log('=== GET /api/employee-departments called ===');
   try {
     const currentEmployeeDepartments = readJsonFile(employeeDepartmentsFile);
@@ -714,6 +718,38 @@ app.get('/auth/status', (req, res) => {
       user: null,
       role: null
     });
+  }
+});
+
+// Goals Management Routes
+app.get('/api/goals', checkPermission('goals', 'read'), (req, res) => {
+  try {
+    const goals = readJsonFile(goalsFile);
+    // Ensure we always return an array
+    res.status(200).json(Array.isArray(goals) ? goals : [goals]);
+  } catch (error) {
+    console.error('Error fetching goals:', error);
+    res.status(500).json({ error: 'Failed to fetch goals' });
+  }
+});
+
+app.post('/api/goals', checkPermission('goals', 'write'), (req, res) => {
+  try {
+    const newGoal = {
+      ...req.body,
+      id: req.body.id || `goal-${Date.now()}`,
+      createdAt: req.body.createdAt || new Date().toISOString(),
+      status: req.body.status || 'pending'
+    };
+
+    const goals = readJsonFile(goalsFile);
+    const updatedGoals = Array.isArray(goals) ? [...goals, newGoal] : [newGoal];
+    
+    writeJsonFile(goalsFile, updatedGoals);
+    res.status(201).json(newGoal);
+  } catch (error) {
+    console.error('Error saving goal:', error);
+    res.status(500).json({ error: 'Failed to save goal' });
   }
 });
 

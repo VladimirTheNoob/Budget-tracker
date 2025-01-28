@@ -16,19 +16,22 @@ const ROLE_PERMISSIONS = {
     tasks: PERMISSIONS.WRITE,
     employees: PERMISSIONS.WRITE,
     notifications: PERMISSIONS.WRITE,
-    roles: PERMISSIONS.WRITE
+    roles: PERMISSIONS.WRITE,
+    goals: PERMISSIONS.WRITE
   },
   [ROLES.MANAGER]: {
     tasks: PERMISSIONS.READ,
     employees: PERMISSIONS.READ,
     notifications: PERMISSIONS.READ,
-    roles: PERMISSIONS.NONE
+    roles: PERMISSIONS.NONE,
+    goals: PERMISSIONS.WRITE
   },
   [ROLES.EMPLOYEE]: {
     tasks: PERMISSIONS.READ,
     employees: PERMISSIONS.READ,
     notifications: PERMISSIONS.NONE,
-    roles: PERMISSIONS.NONE
+    roles: PERMISSIONS.NONE,
+    goals: PERMISSIONS.READ
   }
 };
 

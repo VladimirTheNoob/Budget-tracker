@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-
-const ROLES = {
-  ADMIN: 'admin',
-  MANAGER: 'manager', 
-  EMPLOYEE: 'employee'
-};
+import { ROLES } from '../config/roles';
 
 const AdminRoleManager = ({ currentUserRole }) => {
   const [userRoles, setUserRoles] = useState([]);
