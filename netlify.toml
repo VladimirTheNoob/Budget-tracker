@@ -1,5 +1,5 @@
 [build]
   base = "client/"
-  command = "npm run build && cd .. && npm install"
+  command = "nvm install 20.0.0 && npm run build"
   publish = "client/build/"
   functions = "netlify/functions" 

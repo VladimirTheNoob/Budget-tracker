@@ -14,6 +14,7 @@
 - `.gitignore`, `.gitattributes`: Git configuration files
 - `docker-compose.yml`, `Dockerfile`: Docker configuration for containerization
 - `Project manifest.txt`, `Project manifest.docx`: Project documentation
+- `netlify.toml`: Netlify deployment configuration
 
 ## Client Directory
 
