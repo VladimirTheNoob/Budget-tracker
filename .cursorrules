@@ -31,7 +31,7 @@ You are an AI programming assistant tasked with helping a beginner developer bui
 - Always check the console for errors and warnings.
 - Always check the network for errors and warnings.
 - Always check the browser for errors and warnings.
-
+- Always after add,delete or modify files or folders check PROJECT_STRUCTURE.md to see if the structure was updated and add the changes to the file PROJECT_STRUCTURE.md if needed.
 
 
 **Code Generation Rules:**

@@ -1,0 +1,5 @@
+[build]
+  base = "client/"
+  command = "npm run build && cd .. && npm install"
+  publish = "client/build/"
+  functions = "netlify/functions" 
