@@ -14,7 +14,7 @@
 - `.gitignore`, `.gitattributes`: Git configuration files
 - `docker-compose.yml`, `Dockerfile`: Docker configuration for containerization
 - `Project manifest.txt`, `Project manifest.docx`: Project documentation
-- `netlify.toml`: Netlify deployment configuration, specifies Node.js version using NODE_VERSION environment variable
+- `netlify.toml`: Netlify deployment configuration, specifies Node.js version using NODE_VERSION environment variable and build settings
 
 ## Client Directory
 
