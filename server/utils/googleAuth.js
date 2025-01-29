@@ -6,7 +6,9 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const oauth2Client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/auth/google/callback'
+  process.env.NODE_ENV === 'production'
+    ? 'https://vb-budgettracker.netlify.app/auth/google/callback'
+    : 'http://localhost:5000/auth/google/callback'
 );
 
 // Configure passport
@@ -15,7 +17,11 @@ function configurePassport() {
     console.log('Configuring Passport Google Strategy');
     console.log('Client ID:', process.env.GOOGLE_CLIENT_ID ? 'Present' : 'Missing');
     console.log('Client Secret:', process.env.GOOGLE_CLIENT_SECRET ? 'Present' : 'Missing');
-    console.log('Redirect URI:', process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/auth/google/callback');
+    console.log('Environment:', process.env.NODE_ENV);
+    console.log('Callback URL:', process.env.NODE_ENV === 'production'
+      ? 'https://vb-budgettracker.netlify.app/auth/google/callback'
+      : 'http://localhost:5000/auth/google/callback'
+    );
 
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
       console.error('Missing Google OAuth credentials');
@@ -25,8 +31,10 @@ function configurePassport() {
     passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_REDIRECT_URI || '/auth/google/callback',
-      passReqToCallback: true, // Pass the request to the callback
+      callbackURL: process.env.NODE_ENV === 'production'
+        ? 'https://vb-budgettracker.netlify.app/auth/google/callback'
+        : 'http://localhost:5000/auth/google/callback',
+      passReqToCallback: true,
       scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.send']
     },
     function(req, accessToken, refreshToken, profile, cb) {
@@ -34,7 +42,8 @@ function configurePassport() {
         console.log('Google OAuth Callback:', {
           profileId: profile.id,
           email: profile.emails?.[0]?.value,
-          name: profile.displayName
+          name: profile.displayName,
+          environment: process.env.NODE_ENV
         });
 
         oauth2Client.setCredentials({

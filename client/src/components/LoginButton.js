@@ -2,7 +2,11 @@ import React from 'react';
 
 const LoginButton = ({ className }) => {
   const handleLogin = () => {
-    window.location.href = 'http://localhost:5000/auth/google';
+    const baseUrl = process.env.NODE_ENV === 'production'
+      ? 'https://vb-budgettracker.netlify.app'
+      : 'http://localhost:5000';
+    
+    window.location.href = `${baseUrl}/auth/google`;
   };
 
   return (
