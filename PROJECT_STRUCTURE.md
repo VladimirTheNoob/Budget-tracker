@@ -28,6 +28,7 @@
   - `api/`: API utility functions
   - `lib/`: Library/utility functions
   - `index.js`: React app entry point
+- `build/`: Build output directory for the React frontend
 - `public/`: Public static assets
 - `package.json`, `package-lock.json`: Frontend NPM configuration
 - `tailwind.config.js`, `postcss.config.js`: Tailwind CSS configuration
