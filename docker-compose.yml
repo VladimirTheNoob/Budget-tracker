@@ -15,7 +15,7 @@ services:
     image: postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: 1111
       POSTGRES_DB: company_goals
     ports:
       - "5432:5432" 

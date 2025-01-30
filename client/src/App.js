@@ -9,6 +9,7 @@ import { loginSuccess, logout } from './store/authSlice';
 import Header from './components/Header';
 import { ROLES } from './config/roles';
 import { Toaster } from 'react-hot-toast';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Configure axios base URL and defaults
 axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -196,114 +197,118 @@ function App() {
   }
 
   return (
-    <BrowserRouter
-      future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-      }}
-    >
-      <div className="min-h-screen bg-gray-100">
-        <Toaster 
-          position="top-right" 
-          toastOptions={{
-            success: { duration: 3000 },
-            error: { duration: 5000 }
-          }} 
-        />
-        <Header />
-        <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          <Routes>
-            <Route 
-              path="/" 
-              element={renderMainContent()}
-            />
-            {!isAuthenticated ? (
-              <Route path="*" element={
-                <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                  <h1 className="text-2xl font-bold mb-8 text-gray-800">Welcome to Budget Tracker</h1>
-                  <LoginButton className="transform scale-125 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:shadow-xl transition duration-200" />
-                </div>
-              } />
-            ) : (
-              <>
-                <Route path="/tasks" element={
-                  <ProtectedRoute 
-                    allowedRoles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE]}
-                    isAuthenticated={isAuthenticated}
-                    userRole={userRole}
-                  >
-                    <TaskList 
-                      refreshTrigger={refreshTrigger}
-                      tasks={tasks}
-                      employees={employees}
-                    />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/tasks/input" element={
-                  <ProtectedRoute
-                    allowedRoles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE]}
-                    isAuthenticated={isAuthenticated}
-                    userRole={userRole}
-                  >
-                    <TaskInput 
-                      onDataSaved={() => setRefreshTrigger(prev => prev + 1)}
-                      tasks={tasks}
-                      employees={employees}
-                      setTasks={setTasks}
-                      setEmployees={setEmployees}
-                    />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/goals" element={
-                  <ProtectedRoute 
-                    allowedRoles={[ROLES.ADMIN, ROLES.MANAGER]}
-                    isAuthenticated={isAuthenticated}
-                    userRole={userRole}
-                  >
-                    <GoalList />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/goals/setting" element={
-                  <ProtectedRoute
-                    allowedRoles={[ROLES.ADMIN, ROLES.MANAGER]}
-                    isAuthenticated={isAuthenticated}
-                    userRole={userRole}
-                  >
-                    <GoalSetting />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/goals/input" element={
-                  <ProtectedRoute
-                    allowedRoles={[ROLES.ADMIN, ROLES.MANAGER]}
-                    isAuthenticated={isAuthenticated}
-                    userRole={userRole}
-                  >
-                    <GoalInput />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/admin/roles" element={
-                  <ProtectedRoute
-                    allowedRoles={[ROLES.ADMIN]}
-                    isAuthenticated={isAuthenticated}
-                    userRole={userRole}
-                  >
-                    <AdminRoleManager currentUserRole={userRole} />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-                <Route path="/terms-of-service" element={<TermsOfService />} />
-              </>
-            )}
-          </Routes>
-        </main>
-      </div>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
+        <div className="min-h-screen bg-gray-100">
+          <Toaster 
+            position="top-right" 
+            toastOptions={{
+              success: { duration: 3000 },
+              error: { duration: 5000 }
+            }} 
+          />
+          <Header />
+          <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <ErrorBoundary>
+              <Routes>
+                <Route 
+                  path="/" 
+                  element={renderMainContent()}
+                />
+                {!isAuthenticated ? (
+                  <Route path="*" element={
+                    <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                      <h1 className="text-2xl font-bold mb-8 text-gray-800">Welcome to Budget Tracker</h1>
+                      <LoginButton className="transform scale-125 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover:shadow-xl transition duration-200" />
+                    </div>
+                  } />
+                ) : (
+                  <>
+                    <Route path="/tasks" element={
+                      <ProtectedRoute 
+                        allowedRoles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE]}
+                        isAuthenticated={isAuthenticated}
+                        userRole={userRole}
+                      >
+                        <TaskList 
+                          refreshTrigger={refreshTrigger}
+                          tasks={tasks}
+                          employees={employees}
+                        />
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/tasks/input" element={
+                      <ProtectedRoute
+                        allowedRoles={[ROLES.ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE]}
+                        isAuthenticated={isAuthenticated}
+                        userRole={userRole}
+                      >
+                        <TaskInput 
+                          onDataSaved={() => setRefreshTrigger(prev => prev + 1)}
+                          tasks={tasks}
+                          employees={employees}
+                          setTasks={setTasks}
+                          setEmployees={setEmployees}
+                        />
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/goals" element={
+                      <ProtectedRoute 
+                        allowedRoles={[ROLES.ADMIN, ROLES.MANAGER]}
+                        isAuthenticated={isAuthenticated}
+                        userRole={userRole}
+                      >
+                        <GoalList />
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/goals/setting" element={
+                      <ProtectedRoute
+                        allowedRoles={[ROLES.ADMIN, ROLES.MANAGER]}
+                        isAuthenticated={isAuthenticated}
+                        userRole={userRole}
+                      >
+                        <GoalSetting />
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/goals/input" element={
+                      <ProtectedRoute
+                        allowedRoles={[ROLES.ADMIN, ROLES.MANAGER]}
+                        isAuthenticated={isAuthenticated}
+                        userRole={userRole}
+                      >
+                        <GoalInput />
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/admin/roles" element={
+                      <ProtectedRoute
+                        allowedRoles={[ROLES.ADMIN]}
+                        isAuthenticated={isAuthenticated}
+                        userRole={userRole}
+                      >
+                        <AdminRoleManager currentUserRole={userRole} />
+                      </ProtectedRoute>
+                    } />
+                    
+                    <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                    <Route path="/terms-of-service" element={<TermsOfService />} />
+                  </>
+                )}
+              </Routes>
+            </ErrorBoundary>
+          </main>
+        </div>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 

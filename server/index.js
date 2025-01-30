@@ -16,6 +16,10 @@ const {
 } = require('./utils/rbac');
 const { ROLES } = require('./config/roles');
 const { configurePassport } = require('./utils/googleAuth');
+const morgan = require('morgan');
+const { logger, stream } = require('./utils/logger');
+const { pool } = require('./config/database');
+const pgSession = require('connect-pg-simple')(session);
 
 const app = express();  
 const port = process.env.PORT || 5000;
@@ -24,7 +28,7 @@ const port = process.env.PORT || 5000;
 const storageDir = path.join(__dirname, 'storage');
 if (!fs.existsSync(storageDir)) {
   fs.mkdirSync(storageDir);
-  console.log('Storage directory created:', storageDir);
+  logger.info('Storage directory created:', storageDir);
 }
 
 // File paths for storage
@@ -36,25 +40,25 @@ const goalsFile = path.join(storageDir, 'goals.json');
 // Create tasks.json file if it doesn't exist
 if (!fs.existsSync(tasksFile)) {
   fs.writeFileSync(tasksFile, '[]', 'utf8');
-  console.log('tasks.json file created');
+  logger.info('tasks.json file created');
 }
 
 // Create employees.json file if it doesn't exist  
 if (!fs.existsSync(employeesFile)) {
   fs.writeFileSync(employeesFile, '[]', 'utf8');
-  console.log('employees.json file created');
+  logger.info('employees.json file created');
 }
 
 // Create employee-departments.json file if it doesn't exist
 if (!fs.existsSync(employeeDepartmentsFile)) {
   fs.writeFileSync(employeeDepartmentsFile, '[]', 'utf8');
-  console.log('employee-departments.json file created');
+  logger.info('employee-departments.json file created');
 }
 
 // Create goals.json file if it doesn't exist
 if (!fs.existsSync(goalsFile)) {
   fs.writeFileSync(goalsFile, '[]', 'utf8');
-  console.log('goals.json file created');
+  logger.info('goals.json file created');
 }
 
 // Helper function to read data from a JSON file
@@ -67,7 +71,7 @@ const readJsonFile = (filePath) => {
     const data = fs.readFileSync(filePath);
     return JSON.parse(data);
   } catch (error) {
-    console.error(`Error reading ${filePath}:`, error);
+    logger.error(`Error reading ${filePath}:`, error);
     return [];
   }
 };
@@ -76,9 +80,9 @@ const readJsonFile = (filePath) => {
 const writeJsonFile = (filePath, data) => {
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-    console.log(`Data written to ${filePath}`);
+    logger.info(`Data written to ${filePath}`);
   } catch (error) {
-    console.error(`Error writing file ${filePath}:`, error);
+    logger.error(`Error writing file ${filePath}:`, error);
   }
 };
 
@@ -88,6 +92,7 @@ let employees = readJsonFile(employeesFile);
 let employeeDepartments = readJsonFile(employeeDepartmentsFile);
 
 // Middleware
+app.use(morgan('combined', { stream }));
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
@@ -99,8 +104,12 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session configuration
+// Session configuration with PostgreSQL store
 app.use(session({
+  store: new pgSession({
+    pool,
+    tableName: 'sessions'
+  }),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
@@ -109,7 +118,7 @@ app.use(session({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    domain: process.env.NODE_ENV === 'production' ? 'yourdomain.com' : 'localhost'
+    domain: process.env.NODE_ENV === 'production' ? process.env.COOKIE_DOMAIN : 'localhost'
   }
 }));
 
@@ -129,16 +138,18 @@ passport.deserializeUser((user, done) => {
   done(null, user);
 });
 
-// Debug middleware
+// Debug middleware with improved logging
 app.use((req, res, next) => {
   const userEmail = req.user?.emails?.[0]?.value || req.user?.email;
-  console.log(`${req.method} ${req.path}`, {
+  logger.debug('Request details', {
+    method: req.method,
+    path: req.path,
     authenticated: req.isAuthenticated(),
     user: userEmail,
     userRole: req.user 
       ? getUserRole(getEmployeeIdByEmail(userEmail), userEmail) 
       : null,
-    session: req.session
+    sessionId: req.sessionID
   });
   next();
 });
@@ -158,7 +169,7 @@ app.get('/api/tasks', ensureAuthenticated, checkPermission('tasks', 'read'), (re
     // Ensure at least empty array is returned
     res.status(200).json(Array.isArray(tasks) ? tasks : []);
   } catch (error) {
-    console.error('Error fetching tasks:', error);
+    logger.error('Error fetching tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
@@ -166,9 +177,9 @@ app.get('/api/tasks', ensureAuthenticated, checkPermission('tasks', 'read'), (re
 // PUT endpoint for updating tasks
 app.put('/api/tasks/:taskId', checkPermission('tasks', 'write'), (req, res) => {
   try {
-    console.log('=== PUT /api/tasks/:taskId called ===');
+    logger.info('=== PUT /api/tasks/:taskId called ===');
     const userEmail = req.user?.emails?.[0]?.value || req.user?.email;
-    console.log('Authenticated User:', {
+    logger.debug('Authenticated User:', {
       isAuthenticated: req.isAuthenticated(),
       user: userEmail,
       userRole: req.user 
@@ -178,26 +189,26 @@ app.put('/api/tasks/:taskId', checkPermission('tasks', 'write'), (req, res) => {
 
     // Additional authentication check
     if (!req.isAuthenticated()) {
-      console.warn('Unauthorized: Not authenticated');
+      logger.warn('Unauthorized: Not authenticated');
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    console.log('Task ID:', req.params.taskId);
-    console.log('Update data:', req.body);
+    logger.info('Task ID:', req.params.taskId);
+    logger.info('Update data:', req.body);
     
     // Read current tasks
     const tasks = readJsonFile(tasksFile);
-    console.log('Current tasks count:', tasks.length);
+    logger.info('Current tasks count:', tasks.length);
     
     // Find task index (case-insensitive)
     const taskIndex = tasks.findIndex(t => 
       t.id === req.params.taskId || 
       t.name.toLowerCase() === req.body.name.toLowerCase()
     );
-    console.log('Task index:', taskIndex);
+    logger.info('Task index:', taskIndex);
     
     if (taskIndex === -1) {
-      console.log('Task not found with ID or name:', req.params.taskId, req.body.name);
+      logger.info('Task not found with ID or name:', req.params.taskId, req.body.name);
       return res.status(404).json({ 
         error: 'Task not found', 
         details: {
@@ -221,13 +232,13 @@ app.put('/api/tasks/:taskId', checkPermission('tasks', 'write'), (req, res) => {
     // Save to file
     writeJsonFile(tasksFile, tasks);
     
-    console.log('Task updated successfully:', updatedTask);
+    logger.info('Task updated successfully:', updatedTask);
     res.status(200).json({ 
       message: 'Task updated successfully',
       task: updatedTask
     });
   } catch (error) {
-    console.error('Error updating task:', error);
+    logger.error('Error updating task:', error);
     res.status(500).json({ 
       error: 'Failed to update task',
       details: error.message
@@ -238,7 +249,7 @@ app.put('/api/tasks/:taskId', checkPermission('tasks', 'write'), (req, res) => {
 app.post('/api/tasks', checkPermission('tasks', 'write'), (req, res) => {
   try {
     const taskData = req.body;
-    console.log('Received task data:', taskData);
+    logger.info('Received task data:', taskData);
 
     // Check if this is an update (has an ID)
     if (taskData.id) {
@@ -255,7 +266,7 @@ app.post('/api/tasks', checkPermission('tasks', 'write'), (req, res) => {
       };
 
       writeJsonFile(tasksFile, tasks);
-      console.log('Task updated:', tasks[taskIndex]);
+      logger.info('Task updated:', tasks[taskIndex]);
       res.status(200).json({ 
         message: 'Task updated successfully',
         task: tasks[taskIndex]
@@ -275,14 +286,14 @@ app.post('/api/tasks', checkPermission('tasks', 'write'), (req, res) => {
       };
       tasks.push(newTask);
       writeJsonFile(tasksFile, tasks);
-      console.log('New task created:', newTask);
+      logger.info('New task created:', newTask);
       res.status(201).json({ 
         message: 'Task created successfully',
         task: newTask
       });
     }
   } catch (error) {
-    console.error('Error handling task:', error);
+    logger.error('Error handling task:', error);
     res.status(500).json({ error: 'Failed to handle task operation' });
   }
 });
@@ -290,7 +301,7 @@ app.post('/api/tasks', checkPermission('tasks', 'write'), (req, res) => {
 app.post('/api/tasks/bulk', checkPermission('tasks', 'write'), (req, res) => {
   try {
     const { tasks: newTasks } = req.body;
-    console.log('Received bulk tasks data:', req.body);
+    logger.info('Received bulk tasks data:', req.body);
     
     if (!newTasks || !Array.isArray(newTasks)) {
       return res.status(400).json({ error: 'Invalid tasks data' });
@@ -312,14 +323,14 @@ app.post('/api/tasks/bulk', checkPermission('tasks', 'write'), (req, res) => {
     tasks = [...tasks, ...tasksWithIds];
     writeJsonFile(tasksFile, tasks);
     
-    console.log('Bulk tasks created:', tasksWithIds);
+    logger.info('Bulk tasks created:', tasksWithIds);
     res.status(201).json({ 
       message: 'Bulk tasks created successfully',
       tasksCount: tasksWithIds.length,
       tasks: tasksWithIds
     });
   } catch (error) {
-    console.error('Error in bulk tasks:', error);
+    logger.error('Error in bulk tasks:', error);
     res.status(500).json({ error: 'Failed to create bulk tasks: ' + error.message });
   }
 });
@@ -334,20 +345,20 @@ app.get('/api/employees', checkPermission('employees', 'read'), (req, res) => {
     );
     res.status(200).json(uniqueEmployees);
   } catch (error) {
-    console.error('Error fetching employees:', error);
+    logger.error('Error fetching employees:', error);
     res.status(500).json({ error: 'Failed to fetch employees' });
   }
 });
 
 // Employee-Department Routes
 app.get('/api/employee-departments', checkPermission('employees', 'read'), (req, res) => {
-  console.log('=== GET /api/employee-departments called ===');
+  logger.info('=== GET /api/employee-departments called ===');
   try {
     const currentEmployeeDepartments = readJsonFile(employeeDepartmentsFile);
-    console.log('Current employee-departments:', currentEmployeeDepartments);
+    logger.info('Current employee-departments:', currentEmployeeDepartments);
     res.status(200).json(currentEmployeeDepartments || []);
   } catch (error) {
-    console.error('Error fetching employee-departments:', error);
+    logger.error('Error fetching employee-departments:', error);
     res.status(500).json({ error: 'Failed to fetch employee-departments' });
   }
 });
@@ -355,7 +366,7 @@ app.get('/api/employee-departments', checkPermission('employees', 'read'), (req,
 // Employee Department Management Routes
 app.put('/api/employee-departments', (req, res) => {
   try {
-    console.log('=== PUT /api/employee-departments called ===');
+    logger.info('=== PUT /api/employee-departments called ===');
     const { updates } = req.body;
 
     if (!Array.isArray(updates) || updates.length === 0) {
@@ -428,7 +439,7 @@ app.put('/api/employee-departments', (req, res) => {
       updatedEntries
     });
   } catch (error) {
-    console.error('Error updating employee departments:', error);
+    logger.error('Error updating employee departments:', error);
     res.status(500).json({ 
       error: 'Failed to update employee departments', 
       details: error.message 
@@ -447,7 +458,7 @@ app.delete('/api/tasks/all', (req, res) => {
     writeJsonFile(employeeDepartmentsFile, []);
     res.status(200).json({ message: 'All data deleted successfully' });
   } catch (error) {
-    console.error('Error deleting data:', error);
+    logger.error('Error deleting data:', error);
     res.status(500).json({ error: 'Failed to delete data' });
   }
 });
@@ -457,7 +468,7 @@ const authRouter = express.Router();
 
 // Debug middleware for auth routes
 authRouter.use((req, res, next) => {
-  console.log('Auth route accessed:', req.path);
+  logger.debug('Auth route accessed:', req.path);
   next();
 });
 
@@ -475,7 +486,7 @@ authRouter.get('/google/callback',
     failureFlash: true
   }),
   (req, res) => {
-    console.log('Google OAuth callback:', {
+    logger.info('Google OAuth callback:', {
       user: req.user,
       isAuthenticated: req.isAuthenticated(),
     });
@@ -502,7 +513,7 @@ authRouter.get('/google/callback',
       // Save session explicitly
       req.session.save((err) => {
         if (err) {
-          console.error('Session save error:', err);
+          logger.error('Session save error:', err);
         }
         
         // Redirect to tasks page with success message
@@ -516,7 +527,7 @@ authRouter.get('/google/callback',
 );
 
 authRouter.get('/status', (req, res) => {
-  console.log('Auth Status Request:', {
+  logger.info('Auth Status Request:', {
     isAuthenticated: req.isAuthenticated(),
     user: req.user,
     sessionUser: req.session.user,
@@ -530,7 +541,7 @@ authRouter.get('/status', (req, res) => {
       role: req.session.user.role
     });
   } else {
-    console.log('Not Authenticated');
+    logger.info('Not Authenticated');
     res.json({
       authenticated: false,
       user: null,
@@ -541,18 +552,18 @@ authRouter.get('/status', (req, res) => {
 
 // Logout handler function
 function handleLogout(req, res) {
-  console.log('Logout request received');
+  logger.info('Logout request received');
   try {
     req.logout((err) => {
       if (err) {
-        console.error('Error during logout:', err);
+        logger.error('Error during logout:', err);
         return res.status(500).json({ error: 'Failed to logout' });
       }
 
       if (req.session) {
         req.session.destroy((err) => {
           if (err) {
-            console.error('Error destroying session:', err);
+            logger.error('Error destroying session:', err);
             return res.status(500).json({ error: 'Failed to destroy session' });
           }
           res.clearCookie('connect.sid', {
@@ -561,16 +572,16 @@ function handleLogout(req, res) {
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax'
           });
-          console.log('Logout successful');
+          logger.info('Logout successful');
           res.json({ message: 'Logged out successfully' });
         });
       } else {
-        console.log('No session to destroy');
+        logger.info('No session to destroy');
         res.json({ message: 'Logged out successfully' });
       }
     });
   } catch (error) {
-    console.error('Error in logout route:', error);
+    logger.error('Error in logout route:', error);
     res.status(500).json({ error: 'Internal server error during logout' });
   }
 }
@@ -585,7 +596,7 @@ app.use('/auth', authRouter);
 // Notification Route
 app.post('/api/notifications/send', checkPermission('notifications'), async (req, res) => {
   try {
-    console.log('=== SEND NOTIFICATIONS ROUTE HANDLER CALLED ===');
+    logger.info('=== SEND NOTIFICATIONS ROUTE HANDLER CALLED ===');
     const { notifications } = req.body;
     
     if (!req.isAuthenticated()) {
@@ -593,7 +604,7 @@ app.post('/api/notifications/send', checkPermission('notifications'), async (req
     }
 
     if (!notifications || !Array.isArray(notifications)) {
-      console.error('Invalid notifications data:', req.body);
+      logger.error('Invalid notifications data:', req.body);
       return res.status(400).json({ 
         error: 'Invalid notifications data. Expected an array of notifications.',
         receivedBody: req.body
@@ -602,7 +613,7 @@ app.post('/api/notifications/send', checkPermission('notifications'), async (req
 
     // Ensure OAuth credentials are set
     if (!oauth2Client.credentials.access_token) {
-      console.error('No access token available');
+      logger.error('No access token available');
       return res.status(401).json({ error: 'No valid OAuth credentials' });
     }
 
@@ -613,7 +624,7 @@ app.post('/api/notifications/send', checkPermission('notifications'), async (req
     try {
       await oauth2Client.refreshAccessToken();
     } catch (refreshError) {
-      console.error('Token refresh error:', refreshError);
+      logger.error('Token refresh error:', refreshError);
       return res.status(401).json({ 
         error: 'Failed to refresh access token', 
         details: refreshError.message 
@@ -653,7 +664,7 @@ Task Details:
           message: 'Notification sent successfully'
         });
       } catch (error) {
-        console.error(`Failed to send notification to ${notification.email}:`, error);
+        logger.error(`Failed to send notification to ${notification.email}:`, error);
         results.push({
           success: false,
           email: notification.email,
@@ -670,7 +681,7 @@ Task Details:
       results
     });
   } catch (error) {
-    console.error('Error in notifications endpoint:', error);
+    logger.error('Error in notifications endpoint:', error);
     res.status(500).json({ 
       error: 'Internal server error while processing notifications',
       details: error.message
@@ -710,7 +721,7 @@ app.post('/api/tasks/bulk', (req, res) => {
       duplicates: req.body.tasks.length - tasksWithIds.length
     });
   } catch (error) {
-    console.error('Bulk task error:', error);
+    logger.error('Bulk task error:', error);
     res.status(500).json({ 
       error: 'Server error',
       details: error.message 
@@ -733,7 +744,7 @@ app.get('/api/roles', checkPermission('roles'), (req, res) => {
     const userRoles = readJsonFile(rolesFile);
     res.json(userRoles);
   } catch (error) {
-    console.error('Error fetching roles:', error);
+    logger.error('Error fetching roles:', error);
     res.status(500).json({ error: 'Failed to fetch roles' });
   }
 });
@@ -741,7 +752,7 @@ app.get('/api/roles', checkPermission('roles'), (req, res) => {
 app.put('/api/roles', checkPermission('roles'), (req, res) => {
   try {
     const { employeeId, role } = req.body;
-    console.log('Received role update request:', { employeeId, role });
+    logger.info('Received role update request:', { employeeId, role });
 
     const userEmail = req.user.emails?.[0]?.value || req.user.email;
     const currentUserRole = getUserRole(getEmployeeIdByEmail(userEmail), userEmail);
@@ -752,7 +763,7 @@ app.put('/api/roles', checkPermission('roles'), (req, res) => {
     }
 
     if (!employeeId || !role) {
-      console.log('Missing employeeId or role:', { employeeId, role });
+      logger.info('Missing employeeId or role:', { employeeId, role });
       return res.status(400).json({ error: 'Employee ID and role are required' });
     }
 
@@ -761,18 +772,18 @@ app.put('/api/roles', checkPermission('roles'), (req, res) => {
     const employee = employees.find(emp => emp.id === employeeId);
 
     if (!employee) {
-      console.log('Employee not found:', employeeId);
+      logger.info('Employee not found:', employeeId);
       return res.status(404).json({ error: 'Employee not found' });
     }
 
     setUserRole(employeeId, role);
-    console.log('Role updated successfully:', { employeeId, role });
+    logger.info('Role updated successfully:', { employeeId, role });
     res.json({ 
       message: 'Role updated successfully', 
       userRole: { employeeId, role } 
     });
   } catch (error) {
-    console.error('Error updating role:', error);
+    logger.error('Error updating role:', error);
     res.status(500).json({ error: 'Failed to update role' });
   }
 });
@@ -784,7 +795,7 @@ app.get('/api/goals', checkPermission('goals', 'read'), (req, res) => {
     // Ensure we always return an array
     res.status(200).json(Array.isArray(goals) ? goals : [goals]);
   } catch (error) {
-    console.error('Error fetching goals:', error);
+    logger.error('Error fetching goals:', error);
     res.status(500).json({ error: 'Failed to fetch goals' });
   }
 });
@@ -804,7 +815,7 @@ app.post('/api/goals', checkPermission('goals', 'write'), (req, res) => {
     writeJsonFile(goalsFile, updatedGoals);
     res.status(201).json(newGoal);
   } catch (error) {
-    console.error('Error saving goal:', error);
+    logger.error('Error saving goal:', error);
     res.status(500).json({ error: 'Failed to save goal' });
   }
 });
@@ -815,7 +826,7 @@ app.get('/api/department-values', checkPermission('goals', 'read'), (req, res) =
     const departmentValues = readJsonFile(path.join(storageDir, 'department-values.json'));
     res.status(200).json(departmentValues || {});
   } catch (error) {
-    console.error('Error fetching department values:', error);
+    logger.error('Error fetching department values:', error);
     res.status(500).json({ error: 'Failed to fetch department values' });
   }
 });
@@ -826,25 +837,38 @@ app.put('/api/department-values', checkPermission('goals', 'write'), (req, res) 
     writeJsonFile(path.join(storageDir, 'department-values.json'), values);
     res.status(200).json({ message: 'Department values updated successfully' });
   } catch (error) {
-    console.error('Error updating department values:', error);
+    logger.error('Error updating department values:', error);
     res.status(500).json({ error: 'Failed to update department values' });
   }
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  logger.error('Error:', {
+    error: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    user: req.user?.email
+  });
+  
   res.status(500).json({
     error: 'Internal server error',
-    message: err.message
+    message: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred'
   });
 });
 
 // Error handling for undefined routes
 app.use((req, res) => {
+  logger.warn('Route not found', {
+    path: req.path,
+    method: req.method,
+    user: req.user?.email
+  });
+  
   const availableRoutes = [
     '/api/tasks',
-    '/api/tasks/:taskId',  // PUT endpoint for updating tasks
+    '/api/tasks/:taskId',
     '/api/tasks/update',
     '/api/bulk-tasks',
     '/api/employees',
@@ -864,6 +888,21 @@ app.use((req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-}); 
+// Start server with database connection check
+const startServer = async () => {
+  try {
+    // Test database connection
+    await pool.query('SELECT NOW()');
+    logger.info('Connected to PostgreSQL database');
+
+    // Start the server
+    app.listen(port, () => {
+      logger.info(`Server is running on port ${port}`);
+    });
+  } catch (error) {
+    logger.error('Failed to connect to database:', error);
+    process.exit(1);
+  }
+};
+
+startServer(); 

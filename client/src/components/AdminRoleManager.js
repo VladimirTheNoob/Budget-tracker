@@ -126,6 +126,12 @@ const AdminRoleManager = ({ currentUserRole }) => {
         return;
       }
 
+      // Prevent role change for specific email
+      if (employeeToUpdate.email === 'belyakovvladimirs@gmail.com') {
+        toast.error('Cannot change role for this user');
+        return;
+      }
+
       // Prepare role update payload
       const updatePayload = {
         employeeId: employeeId,
@@ -264,17 +270,23 @@ const AdminRoleManager = ({ currentUserRole }) => {
           <table className="w-full border-collapse border border-gray-300">
             <thead>
               <tr className="bg-gray-100">
-                <th className="border border-gray-300 p-2">Employee ID</th>
+                <th className="border border-gray-300 p-2">User Email</th>
                 <th className="border border-gray-300 p-2">Role</th>
               </tr>
             </thead>
             <tbody>
-              {userRoles.map((role, index) => (
-                <tr key={index} className="hover:bg-gray-50">
-                  <td className="border border-gray-300 p-2">{role.employeeId}</td>
-                  <td className="border border-gray-300 p-2">{role.role}</td>
-                </tr>
-              ))}
+              {userRoles.map((role, index) => {
+                // Find the employee corresponding to this role
+                const employee = employees.find(emp => emp.id === role.employeeId);
+                return (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="border border-gray-300 p-2">
+                      {employee ? employee.email : 'Unknown Email'}
+                    </td>
+                    <td className="border border-gray-300 p-2">{role.role}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

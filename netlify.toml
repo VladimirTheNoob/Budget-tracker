@@ -4,4 +4,43 @@
   functions = "netlify/functions"
 
 [build.environment]
-  NODE_VERSION = "20.0.0" 
+  NODE_VERSION = "20.0.0"
+  NPM_FLAGS = "--no-audit --no-fund"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = [
+    "express",
+    "passport",
+    "passport-google-oauth20",
+    "express-session",
+    "cors",
+    "cookie-parser",
+    "pg",
+    "jsonwebtoken",
+    "bcryptjs"
+  ]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/auth/*"
+  to = "/.netlify/functions/api/auth/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[dev]
+  framework = "#custom"
+  command = "npm run start"
+  targetPort = 3000
+  port = 8888
+  publish = "build" 
