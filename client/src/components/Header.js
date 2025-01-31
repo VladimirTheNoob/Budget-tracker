@@ -78,7 +78,7 @@ const Header = () => {
                   Welcome, {user?.email || 'User'}
                 </span>
                 <span className="text-xs text-blue-200 capitalize">
-                  Role: {userRole || 'Unknown'}
+                  Role: {userRole?.toString() || 'Unknown'}
                 </span>
               </div>
               <button 

@@ -481,11 +481,8 @@ authRouter.get('/google',
 );
 
 authRouter.get('/google/callback',
-  passport.authenticate('google', {
-    failureRedirect: 'http://localhost:3000/login',
-    failureFlash: true
-  }),
-  (req, res) => {
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  async (req, res) => {
     logger.info('Google OAuth callback:', {
       user: req.user,
       isAuthenticated: req.isAuthenticated(),
@@ -493,21 +490,15 @@ authRouter.get('/google/callback',
     
     // Explicitly set session data
     if (req.user) {
-      const userEmail = 
-        req.user.emails?.[0]?.value || 
-        req.user.email || 
-        null;
-
-      const employeeId = getEmployeeIdByEmail(userEmail);
-      const userRole = userEmail?.toLowerCase() === 'belyakovvladimirs@gmail.com'
-        ? ROLES.ADMIN
-        : getUserRole(employeeId, userEmail);
+      const userEmail = req.user?.emails?.[0]?.value || req.user?.email;
+      const employeeId = await getEmployeeIdByEmail(userEmail);
+      const userRole = await getUserRole(employeeId, userEmail);
 
       // Store additional user info in session
       req.session.user = {
         id: employeeId,
         email: userEmail,
-        role: userRole || ROLES.EMPLOYEE
+        role: userRole
       };
 
       // Save session explicitly
@@ -730,61 +721,153 @@ app.post('/api/tasks/bulk', (req, res) => {
 });
 
 // RBAC Management Routes
-app.get('/api/roles', checkPermission('roles'), (req, res) => {
+app.get('/api/roles', checkPermission('roles', 'write'), async (req, res) => {
   try {
     const userEmail = req.user.emails?.[0]?.value || req.user.email;
-    const currentUserRole = getUserRole(getEmployeeIdByEmail(userEmail), userEmail);
+    const currentUserRole = await getUserRole(await getEmployeeIdByEmail(userEmail), userEmail);
 
-    // Only admins can list all roles
+    console.log('GET /api/roles - User Details:', { 
+      userEmail, 
+      currentUserRole 
+    });
+
+    // Only admins can view all roles
     if (currentUserRole !== ROLES.ADMIN) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const rolesFile = path.join(__dirname, 'storage/user-roles.json');
-    const userRoles = readJsonFile(rolesFile);
-    res.json(userRoles);
+    // Get all users with their roles
+    const query = `
+      SELECT 
+        id as "employeeId",
+        email,
+        role,
+        name
+      FROM users
+      ORDER BY email
+    `;
+    
+    const result = await pool.query(query);
+    
+    console.log('GET /api/roles - Found Roles:', {
+      count: result.rows.length,
+      roles: result.rows
+    });
+
+    res.json(result.rows);
   } catch (error) {
-    logger.error('Error fetching roles:', error);
+    console.error('Error fetching roles:', error);
     res.status(500).json({ error: 'Failed to fetch roles' });
   }
 });
 
-app.put('/api/roles', checkPermission('roles'), (req, res) => {
+app.put('/api/roles', checkPermission('roles', 'write'), async (req, res) => {
   try {
-    const { employeeId, role } = req.body;
-    logger.info('Received role update request:', { employeeId, role });
+    const { employeeId, role, email } = req.body;
+    console.log('PUT /api/roles - Request Details:', { 
+      employeeId, 
+      role,
+      email,
+      requestingUser: req.user.emails?.[0]?.value || req.user.email
+    });
 
     const userEmail = req.user.emails?.[0]?.value || req.user.email;
-    const currentUserRole = getUserRole(getEmployeeIdByEmail(userEmail), userEmail);
+    const currentUserRole = await getUserRole(await getEmployeeIdByEmail(userEmail), userEmail);
+
+    console.log('PUT /api/roles - User Role Check:', {
+      userEmail,
+      currentUserRole
+    });
 
     // Only admins can modify roles
     if (currentUserRole !== ROLES.ADMIN) {
+      console.log('PUT /api/roles - Access Denied:', {
+        reason: 'Not an admin',
+        userRole: currentUserRole
+      });
       return res.status(403).json({ error: 'Access denied' });
     }
 
     if (!employeeId || !role) {
-      logger.info('Missing employeeId or role:', { employeeId, role });
+      console.log('PUT /api/roles - Invalid Request:', { employeeId, role });
       return res.status(400).json({ error: 'Employee ID and role are required' });
     }
 
-    // Find the employee by ID
-    const employees = readJsonFile(employeesFile);
-    const employee = employees.find(emp => emp.id === employeeId);
-
-    if (!employee) {
-      logger.info('Employee not found:', employeeId);
-      return res.status(404).json({ error: 'Employee not found' });
+    // Prevent role change for specific email
+    if (email === 'belyakovvladimirs@gmail.com') {
+      console.log('PUT /api/roles - Cannot Change Role:', email);
+      return res.status(403).json({ error: 'Cannot change role for this user' });
     }
 
-    setUserRole(employeeId, role);
-    logger.info('Role updated successfully:', { employeeId, role });
+    // First try to find user by email
+    let userLookupResult = await pool.query(
+      'SELECT id, email, role FROM users WHERE email = $1',
+      [email]
+    );
+
+    // If not found by email, try by ID
+    if (userLookupResult.rows.length === 0) {
+      // Extract numeric part from employeeId if it's an old-style ID
+      const numericPart = employeeId.replace(/[^0-9]/g, '');
+      const uuid = crypto.createHash('md5').update(numericPart).digest('hex');
+      
+      userLookupResult = await pool.query(
+        'SELECT id, email, role FROM users WHERE id::text = $1',
+        [uuid]
+      );
+    }
+
+    // If still not found, try by email part
+    if (userLookupResult.rows.length === 0 && email) {
+      userLookupResult = await pool.query(
+        'SELECT id, email, role FROM users WHERE email = $1',
+        [email]
+      );
+    }
+
+    // If no user found, return detailed error
+    if (userLookupResult.rows.length === 0) {
+      console.log('PUT /api/roles - User Not Found:', { 
+        searchedId: employeeId,
+        searchedEmail: email
+      });
+      return res.status(404).json({ 
+        error: 'Failed to update role', 
+        details: 'User not found in database',
+        searchedId: employeeId
+      });
+    }
+
+    // Get the first matching user
+    const userToUpdate = userLookupResult.rows[0];
+
+    // Update role in database
+    const updateQuery = 'UPDATE users SET role = $1 WHERE id = $2 RETURNING *';
+    const updateResult = await pool.query(updateQuery, [role, userToUpdate.id]);
+
+    console.log('PUT /api/roles - Role Updated Successfully:', { 
+      employeeId: userToUpdate.id, 
+      email: userToUpdate.email,
+      oldRole: userToUpdate.role,
+      newRole: role 
+    });
+
     res.json({ 
       message: 'Role updated successfully', 
-      userRole: { employeeId, role } 
+      userRole: { 
+        employeeId: userToUpdate.id, 
+        email: userToUpdate.email,
+        role 
+      } 
     });
   } catch (error) {
-    logger.error('Error updating role:', error);
-    res.status(500).json({ error: 'Failed to update role' });
+    console.error('Error updating role:', error);
+    
+    // More detailed error response
+    res.status(500).json({ 
+      error: 'Failed to update role', 
+      details: error.message 
+    });
   }
 });
 

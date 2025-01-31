@@ -54,10 +54,18 @@ function App() {
           response.data.user?.emails?.[0]?.value || 
           'Unknown Email';
 
-        const userRole = response.data.role || 
-          (userEmail.toLowerCase() === 'belyakovvladimirs@gmail.com' 
-            ? 'admin' 
-            : 'employee');
+        // Robust role processing
+        const serverRole = response.data.role;
+        const userRole = 
+          (typeof serverRole === 'object' && Object.keys(serverRole).length === 0) 
+            ? (userEmail.toLowerCase() === 'belyakovvladimirs@gmail.com' 
+                ? 'admin' 
+                : userEmail.toLowerCase() === 'vladimirbelyakov1981@gmail.com'
+                  ? 'admin'
+                  : 'employee')
+            : (serverRole || 'employee');
+
+        console.log('Processed User Role:', userRole);
 
         dispatch(loginSuccess({
           user: {
@@ -65,7 +73,9 @@ function App() {
             email: userEmail
           },
           authenticated: true,
-          userRole: userRole
+          userRole: typeof userRole === 'string' 
+            ? userRole.toLowerCase() 
+            : 'employee'
         }));
 
         console.log('Dispatched Login Success with Role:', userRole);
@@ -79,15 +89,12 @@ function App() {
       
       // More detailed error handling
       if (error.response) {
-        // The request was made and the server responded with a status code
         console.error('Error response data:', error.response.data);
         console.error('Error response status:', error.response.status);
         console.error('Error response headers:', error.response.headers);
       } else if (error.request) {
-        // The request was made but no response was received
         console.error('No response received:', error.request);
       } else {
-        // Something happened in setting up the request that triggered an Error
         console.error('Error setting up request:', error.message);
       }
       
@@ -301,6 +308,23 @@ function App() {
                     
                     <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                     <Route path="/terms-of-service" element={<TermsOfService />} />
+                    <Route 
+                      path="/unauthorized" 
+                      element={
+                        <div className="flex items-center justify-center min-h-screen bg-red-100">
+                          <div className="bg-white p-8 rounded-lg shadow-md text-center">
+                            <h2 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h2>
+                            <p className="text-gray-700 mb-6">You do not have permission to access this page.</p>
+                            <button 
+                              onClick={() => window.location.href = '/'} 
+                              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition"
+                            >
+                              Return to Home
+                            </button>
+                          </div>
+                        </div>
+                      } 
+                    />
                   </>
                 )}
               </Routes>

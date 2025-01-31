@@ -1,33 +1,38 @@
 {
   "name": "budget-tracker-server",
   "version": "1.0.0",
-  "description": "Backend server for the Budget Tracker application",
+  "description": "Backend server for Budget Tracker application",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "jest",
-    "migrate": "node scripts/migrate_json_to_postgres.js"
+    "migrate": "node scripts/migrate_json_to_postgres.js",
+    "import:users": "node scripts/import_users.js",
+    "protect:admin": "node scripts/protect_admin_user.js"
   },
+  "keywords": [
+    "budget",
+    "tracker",
+    "nodejs",
+    "express",
+    "postgresql"
+  ],
+  "author": "Vladimir Belyakov",
+  "license": "ISC",
   "dependencies": {
-    "axios": "^1.6.2",
-    "bcrypt": "^5.1.1",
-    "bcryptjs": "^2.4.3",
-    "connect-pg-simple": "^9.0.1",
-    "cookie-parser": "^1.4.6",
+    "bcrypt": "^5.1.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
+    "dotenv": "^16.0.3",
     "express": "^4.18.2",
-    "express-session": "^1.17.3",
-    "jsonwebtoken": "^9.0.2",
-    "morgan": "^1.10.0",
+    "jsonwebtoken": "^9.0.0",
     "passport": "^0.6.0",
     "passport-google-oauth20": "^2.0.0",
-    "pg": "^8.11.3",
-    "uuid": "^9.0.1",
-    "winston": "^3.17.0"
+    "pg": "^8.10.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "jest": "^29.5.0",
     "nodemon": "^2.0.22"
   }
 }

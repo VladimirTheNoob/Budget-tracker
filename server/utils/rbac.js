@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const { ROLES, PERMISSIONS, ROLE_PERMISSIONS } = require('../config/roles');
+const crypto = require('crypto');
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -38,24 +39,67 @@ const getUserRole = async (employeeId, email) => {
 
     console.log('getUserRole - Processed Email:', processedEmail);
 
-    // Always return admin role for this specific email
-    if (processedEmail?.toLowerCase() === 'belyakovvladimirs@gmail.com') {
-      return ROLES.ADMIN;
+    // Multiple lookup strategies
+    const lookupStrategies = [
+      // 1. Direct ID lookup
+      async () => {
+        if (employeeId) {
+          const idQuery = 'SELECT role FROM users WHERE id = $1';
+          const idResult = await pool.query(idQuery, [employeeId]);
+          return idResult.rows[0]?.role;
+        }
+        return null;
+      },
+      
+      // 2. Email lookup
+      async () => {
+        if (processedEmail) {
+          const emailQuery = 'SELECT role FROM users WHERE email = $1';
+          const emailResult = await pool.query(emailQuery, [processedEmail]);
+          return emailResult.rows[0]?.role;
+        }
+        return null;
+      },
+      
+      // 3. Partial match strategies
+      async () => {
+        // If employeeId is a string, try partial matching
+        if (typeof employeeId === 'string') {
+          const numericPart = employeeId.replace(/[^0-9]/g, '');
+          const partialQuery = `
+            SELECT role 
+            FROM users 
+            WHERE id LIKE $1 OR email LIKE $2
+          `;
+          const partialResult = await pool.query(partialQuery, [
+            `%${numericPart}%`, 
+            `%${employeeId}%`
+          ]);
+          return partialResult.rows[0]?.role;
+        }
+        return null;
+      }
+    ];
+
+    // Try lookup strategies
+    let userRole;
+    for (const strategy of lookupStrategies) {
+      try {
+        userRole = await strategy();
+        if (userRole) break;
+      } catch (strategyError) {
+        console.warn('Role lookup strategy failed:', strategyError);
+      }
     }
 
-    // Query user role from database
-    const query = 'SELECT role FROM users WHERE id = $1';
-    const result = await pool.query(query, [employeeId]);
-
-    if (result.rows.length === 0) {
-      console.log('No user found with given ID');
+    // If no role found, default to employee
+    if (!userRole) {
+      console.log('No role found in database, defaulting to employee');
       return ROLES.EMPLOYEE;
     }
 
-    const userRole = result.rows[0].role;
-    console.log('getUserRole - Returned Role:', userRole);
-
-    return userRole || ROLES.EMPLOYEE;
+    console.log('Returning role from database:', userRole);
+    return userRole;
   } catch (error) {
     console.error('Error getting user role:', error);
     return ROLES.EMPLOYEE;
@@ -65,12 +109,112 @@ const getUserRole = async (employeeId, email) => {
 // Set user role
 const setUserRole = async (employeeId, role) => {
   try {
-    const query = 'UPDATE users SET role = $1 WHERE id = $2';
-    await pool.query(query, [role, employeeId]);
+    console.log('Setting User Role - Detailed Input:', { 
+      employeeId, 
+      role, 
+      inputType: typeof employeeId 
+    });
+
+    // Validate inputs
+    if (!employeeId || !role) {
+      throw new Error('Invalid input: employeeId and role are required');
+    }
+
+    // Function to generate a consistent UUID from an ID
+    const generateUUIDFromId = (id) => {
+      // If it's already a valid UUID, return it
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        return id;
+      }
+
+      // For old-style IDs, generate a consistent UUID
+      // Extract the numeric part of the ID
+      const numericPart = id.replace(/[^0-9]/g, '');
+      return crypto.createHash('md5').update(numericPart).digest('hex');
+    };
+
+    // Lookup strategies
+    const lookupStrategies = [
+      // 1. Direct email lookup
+      async () => {
+        const emailQuery = 'SELECT id, email, role FROM users WHERE email = $1';
+        const emailResult = await pool.query(emailQuery, [employeeId]);
+        return emailResult.rows[0];
+      },
+      
+      // 2. UUID generation from ID
+      async () => {
+        const uuid = generateUUIDFromId(employeeId);
+        const uuidQuery = 'SELECT id, email, role FROM users WHERE id = $1';
+        const uuidResult = await pool.query(uuidQuery, [uuid]);
+        return uuidResult.rows[0];
+      },
+      
+      // 3. Partial match on employee ID or email
+      async () => {
+        // Remove non-numeric characters and do a partial match
+        const numericPart = employeeId.replace(/[^0-9]/g, '');
+        const partialQuery = `
+          SELECT id, email, role 
+          FROM users 
+          WHERE id LIKE $1 OR email LIKE $2
+        `;
+        const partialResult = await pool.query(partialQuery, [
+          `%${numericPart}%`, 
+          `%${employeeId}%`
+        ]);
+        return partialResult.rows[0];
+      }
+    ];
+
+    // Try lookup strategies
+    let userRecord;
+    for (const strategy of lookupStrategies) {
+      try {
+        userRecord = await strategy();
+        if (userRecord) break;
+      } catch (strategyError) {
+        console.warn('Lookup strategy failed:', strategyError);
+      }
+    }
+
+    // If no user found, throw an error
+    if (!userRecord) {
+      console.warn('No user found with any identifier:', { employeeId });
+      throw new Error(`User not found in database for ID: ${employeeId}`);
+    }
+
+    const { id: userId, email: userEmail } = userRecord;
+
+    console.log('Found user:', { userId, userEmail });
+
+    // Update role in database
+    const updateQuery = 'UPDATE users SET role = $1 WHERE id = $2 RETURNING *';
+    const updateResult = await pool.query(updateQuery, [role, userId]);
     
-    console.log('Setting User Role:', { employeeId, role });
+    console.log('Database Update Result:', {
+      rowCount: updateResult.rowCount,
+      updatedUser: updateResult.rows[0]
+    });
+
+    return { 
+      success: true, 
+      message: 'Role updated successfully',
+      details: {
+        employeeId,
+        role,
+        userId,
+        userEmail
+      }
+    };
   } catch (error) {
-    console.error('Error setting user role:', error);
+    console.error('Comprehensive Error in setUserRole:', {
+      message: error.message,
+      stack: error.stack,
+      employeeId,
+      role
+    });
+    throw error;
   }
 };
 
@@ -82,14 +226,37 @@ const checkPermission = (resource, action = 'read') => {
       const employeeId = await getEmployeeIdByEmail(userEmail);
       const userRole = await getUserRole(employeeId, userEmail);
 
-      // Determine permissions based on role
-      const rolePermissions = ROLE_PERMISSIONS[userRole] || {};
+      console.log('Permission Check Details:', {
+        userEmail,
+        employeeId,
+        userRole,
+        resource,
+        action
+      });
+
+      // Determine permissions based on role, handling both string and object keys
+      const rolePermissions = ROLE_PERMISSIONS[userRole] || 
+                               ROLE_PERMISSIONS[userRole.toLowerCase()] || {};
+      
+      console.log('Role Permissions Object:', ROLE_PERMISSIONS);
+      console.log('Resolved Role Permissions:', rolePermissions);
+
       const resourcePermissions = rolePermissions[resource] || PERMISSIONS.NONE;
+
+      console.log('Resource Permissions:', {
+        resourcePermissions,
+        expectedPermission: action === 'read' ? PERMISSIONS.READ : PERMISSIONS.WRITE
+      });
 
       // Check if the action is allowed
       const isAllowed = 
         resourcePermissions === PERMISSIONS.WRITE || 
         (action === 'read' && resourcePermissions !== PERMISSIONS.NONE);
+
+      console.log('Permission Check Result:', {
+        isAllowed,
+        reason: isAllowed ? 'Granted' : 'Insufficient Permissions'
+      });
 
       if (isAllowed) {
         return next();
@@ -97,7 +264,13 @@ const checkPermission = (resource, action = 'read') => {
 
       return res.status(403).json({ 
         error: 'Access denied', 
-        message: `Insufficient permissions for ${resource} ${action}` 
+        message: `Insufficient permissions for ${resource} ${action}`,
+        details: {
+          userRole,
+          resource,
+          action,
+          resourcePermissions
+        }
       });
     } catch (error) {
       console.error('Permission check error:', error);

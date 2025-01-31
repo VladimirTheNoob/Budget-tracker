@@ -12,7 +12,7 @@ const PERMISSIONS = {
 };
 
 const ROLE_PERMISSIONS = {
-  [ROLES.ADMIN]: {
+  'admin': {
     tasks: PERMISSIONS.WRITE,
     employees: PERMISSIONS.WRITE,
     notifications: PERMISSIONS.WRITE,

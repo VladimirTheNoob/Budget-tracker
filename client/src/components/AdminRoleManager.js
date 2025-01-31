@@ -135,7 +135,8 @@ const AdminRoleManager = ({ currentUserRole }) => {
       // Prepare role update payload
       const updatePayload = {
         employeeId: employeeId,
-        role: role
+        role: role,
+        email: employeeToUpdate.email
       };
 
       console.log('Role Update Payload:', updatePayload);
@@ -149,8 +150,18 @@ const AdminRoleManager = ({ currentUserRole }) => {
 
       console.log('Role Update Response:', response.data);
 
-      // Refresh roles after successful update
-      fetchUserRoles();
+      // Refetch both roles and employees to ensure consistency
+      const [rolesResponse, employeesResponse] = await Promise.all([
+        axios.get('http://localhost:5000/api/roles', { withCredentials: true }),
+        axios.get('http://localhost:5000/api/employees', { withCredentials: true })
+      ]);
+
+      console.log('Refetched Roles:', rolesResponse.data);
+      console.log('Refetched Employees:', employeesResponse.data);
+
+      // Update state with latest data
+      setUserRoles(rolesResponse.data);
+      setEmployees(employeesResponse.data);
 
       // Reset form
       setNewRole({
@@ -267,28 +278,43 @@ const AdminRoleManager = ({ currentUserRole }) => {
         {/* User Roles List */}
         <div className="mt-8">
           <h3 className="text-xl font-semibold mb-4">Current User Roles</h3>
-          <table className="w-full border-collapse border border-gray-300">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border border-gray-300 p-2">User Email</th>
-                <th className="border border-gray-300 p-2">Role</th>
-              </tr>
-            </thead>
-            <tbody>
-              {userRoles.map((role, index) => {
-                // Find the employee corresponding to this role
-                const employee = employees.find(emp => emp.id === role.employeeId);
-                return (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="border border-gray-300 p-2">
-                      {employee ? employee.email : 'Unknown Email'}
-                    </td>
-                    <td className="border border-gray-300 p-2">{role.role}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {userRoles.length === 0 ? (
+            <p className="text-center text-gray-500">No user roles found</p>
+          ) : (
+            <table className="w-full border-collapse border border-gray-300">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border border-gray-300 p-2">User Email</th>
+                  <th className="border border-gray-300 p-2">Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                {userRoles.map((role, index) => {
+                  // Find the employee corresponding to this role
+                  const employee = employees.find(emp => 
+                    emp.id === role.employeeId || 
+                    emp.email === role.email
+                  );
+                  
+                  // Add console log to debug role mapping
+                  console.log('Role Mapping Debug:', {
+                    roleEntry: role,
+                    matchedEmployee: employee,
+                    employeesList: employees
+                  });
+
+                  return (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="border border-gray-300 p-2">
+                        {employee ? employee.email : role.email || 'Unknown Email'}
+                      </td>
+                      <td className="border border-gray-300 p-2">{role.role}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

@@ -8,9 +8,11 @@ const ProtectedRoute = ({ children, allowedRoles = ['admin', 'manager', 'employe
   const { isAuthenticated, userRole } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    console.log('ProtectedRoute - isAuthenticated:', isAuthenticated);
-    console.log('ProtectedRoute - role:', userRole);
-    console.log('ProtectedRoute - allowedRoles:', allowedRoles);
+    console.log('ProtectedRoute - Authentication Details:', {
+      isAuthenticated,
+      userRole: typeof userRole === 'object' ? JSON.stringify(userRole) : userRole,
+      allowedRoles
+    });
   }, [isAuthenticated, userRole, allowedRoles]);
 
   // Not authenticated
@@ -22,22 +24,20 @@ const ProtectedRoute = ({ children, allowedRoles = ['admin', 'manager', 'employe
     return <Navigate to="/login" replace />;
   }
 
-  // Undefined role handling
-  if (!userRole) {
-    toast.error('Unable to determine user role. Please log out and log in again.', {
-      position: 'top-center',
-      duration: 4000
-    });
-    return <Navigate to="/login" replace />;
-  }
+  // Robust role handling
+  const currentUserRole = typeof userRole === 'object' 
+    ? (userRole.role || userRole.name || 'guest') 
+    : userRole || 'guest';
+
+  console.log('ProtectedRoute - Processed Role:', currentUserRole);
 
   // Admin gets full access
-  if (userRole === ROLES.ADMIN) {
+  if (currentUserRole === ROLES.ADMIN) {
     return children;
   }
 
   // Role-based access control
-  const hasRequiredRole = allowedRoles.includes(userRole);
+  const hasRequiredRole = allowedRoles.includes(currentUserRole.toLowerCase());
   
   if (!hasRequiredRole) {
     toast.error('You do not have permission to access this page', {
