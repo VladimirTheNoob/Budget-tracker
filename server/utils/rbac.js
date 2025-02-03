@@ -13,6 +13,12 @@ const pool = new Pool({
   port: process.env.POSTGRES_PORT || 5432,
 });
 
+// Add this near the top of the file
+const ADMIN_EMAILS = [
+  'belyakovvladimirs@gmail.com',
+  // Add other admin emails here
+];
+
 // Get employee ID by email
 const getEmployeeIdByEmail = async (email) => {
   try {
@@ -218,7 +224,7 @@ const setUserRole = async (employeeId, role) => {
   }
 };
 
-// Check permission
+// Modify the checkPermission function
 const checkPermission = (resource, action = 'read') => {
   return async (req, res, next) => {
     try {
@@ -234,29 +240,20 @@ const checkPermission = (resource, action = 'read') => {
         action
       });
 
-      // Determine permissions based on role, handling both string and object keys
+      // Special case for admin emails
+      if (ADMIN_EMAILS.includes(userEmail)) {
+        return next();
+      }
+
+      // Rest of the existing permission check logic remains the same
       const rolePermissions = ROLE_PERMISSIONS[userRole] || 
                                ROLE_PERMISSIONS[userRole.toLowerCase()] || {};
       
-      console.log('Role Permissions Object:', ROLE_PERMISSIONS);
-      console.log('Resolved Role Permissions:', rolePermissions);
-
       const resourcePermissions = rolePermissions[resource] || PERMISSIONS.NONE;
 
-      console.log('Resource Permissions:', {
-        resourcePermissions,
-        expectedPermission: action === 'read' ? PERMISSIONS.READ : PERMISSIONS.WRITE
-      });
-
-      // Check if the action is allowed
       const isAllowed = 
         resourcePermissions === PERMISSIONS.WRITE || 
         (action === 'read' && resourcePermissions !== PERMISSIONS.NONE);
-
-      console.log('Permission Check Result:', {
-        isAllowed,
-        reason: isAllowed ? 'Granted' : 'Insufficient Permissions'
-      });
 
       if (isAllowed) {
         return next();
@@ -276,8 +273,8 @@ const checkPermission = (resource, action = 'read') => {
       console.error('Permission check error:', error);
       return res.status(500).json({ error: 'Internal server error during permission check' });
     }
-  };
-};
+  }
+}
 
 module.exports = {
   ROLES,

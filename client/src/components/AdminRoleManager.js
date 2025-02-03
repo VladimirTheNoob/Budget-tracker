@@ -4,6 +4,11 @@ import { Link } from 'react-router-dom';
 import { ROLES } from '../config/roles';
 import { Toaster, toast } from 'react-hot-toast';
 
+const ADMIN_EMAILS = [
+  'belyakovvladimirs@gmail.com',
+  // Add other admin emails
+];
+
 const AdminRoleManager = ({ currentUserRole }) => {
   const [userRoles, setUserRoles] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -16,34 +21,32 @@ const AdminRoleManager = ({ currentUserRole }) => {
   const [authStatus, setAuthStatus] = useState(null);
 
   useEffect(() => {
-    // Check current user's role
     const checkUserRole = async () => {
       try {
         const response = await axios.get('http://localhost:5000/auth/status', { 
           withCredentials: true 
         });
         
-        console.log('Admin Role Manager - Auth Status:', {
-          authenticated: response.data.authenticated,
-          role: response.data.role,
-          user: response.data.user,
-          passedRole: currentUserRole
-        });
-        
-        // Determine the role to use
-        const resolvedRole = currentUserRole || 
+        const userEmail = 
+          response.data.user?.email || 
+          response.data.user?.emails?.[0]?.value;
+
+        // More robust role determination
+        const resolvedRole = 
+          currentUserRole || 
           response.data.role || 
-          (response.data.user?.email === 'belyakovvladimirs@gmail.com' ? ROLES.ADMIN : ROLES.EMPLOYEE);
+          (ADMIN_EMAILS.includes(userEmail) ? ROLES.ADMIN : ROLES.EMPLOYEE);
         
         console.log('Resolved Role:', resolvedRole);
         
-        // Only fetch roles if user is an admin
-        if (resolvedRole === ROLES.ADMIN) {
+        // Fetch roles if user is admin or has admin email
+        if (resolvedRole === ROLES.ADMIN || ADMIN_EMAILS.includes(userEmail)) {
           console.log('Fetching user roles for admin');
           fetchUserRoles();
           fetchEmployees();
         } else {
           console.log('Not an admin, cannot fetch roles');
+          toast.error('Insufficient permissions');
         }
 
         setAuthStatus(response.data);
